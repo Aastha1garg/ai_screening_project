@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+sqlalchemy
+python-jose[cryptography]
+passlib[bcrypt]
+pydantic[email]
+sentence-transformers
+torch
+python-multipart
+pypdf
+python-docx
+requests
+spacy
