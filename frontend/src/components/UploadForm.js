@@ -7,9 +7,39 @@ function UploadForm({ onSubmit, onPayloadCapture }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleResumeUpload = (e) => setResumes(e.target.files);
-  const handleJDUpload = (e) => setJds(e.target.files);
+  const dedupeFiles = (existingFiles, nextFiles) => {
+    const seen = new Set(existingFiles.map((file) => `${file.name}-${file.size}-${file.lastModified}`));
+    const merged = [...existingFiles];
+    nextFiles.forEach((file) => {
+      const key = `${file.name}-${file.size}-${file.lastModified}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(file);
+      }
+    });
+    return merged;
+  };
+
+  const handleResumeUpload = (e) => {
+    const selected = Array.from(e.target.files || []);
+    setResumes((prev) => dedupeFiles(prev, selected));
+    e.target.value = "";
+  };
+
+  const handleJDUpload = (e) => {
+    const selected = Array.from(e.target.files || []);
+    setJds((prev) => dedupeFiles(prev, selected));
+    e.target.value = "";
+  };
   const handleTemplateUpload = (e) => setTemplate(e.target.files[0] || null);
+
+  const removeResume = (indexToRemove) => {
+    setResumes((prev) => prev.filter((_, index) => index !== indexToRemove));
+  };
+
+  const removeJD = (indexToRemove) => {
+    setJds((prev) => prev.filter((_, index) => index !== indexToRemove));
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -23,13 +53,9 @@ function UploadForm({ onSubmit, onPayloadCapture }) {
     try {
       const formData = new FormData();
 
-      for (let i = 0; i < resumes.length; i += 1) {
-        formData.append("resumes", resumes[i]);
-      }
+      resumes.forEach((file) => formData.append("resumes", file));
 
-      for (let i = 0; i < jds.length; i += 1) {
-        formData.append("jds", jds[i]);
-      }
+      jds.forEach((file) => formData.append("jds", file));
 
       if (template) {
         formData.append("template_resume", template);
@@ -67,11 +93,16 @@ function UploadForm({ onSubmit, onPayloadCapture }) {
           />
         </label>
         {!!resumes.length && (
-          <p className="muted uploaded-files">
-            {Array.from(resumes)
-              .map((file) => file.name)
-              .join(", ")}
-          </p>
+          <div className="uploaded-files">
+            {resumes.map((file, index) => (
+              <div key={`${file.name}-${file.size}-${file.lastModified}`} className="inline-controls">
+                <span className="muted">{file.name}</span>
+                <button type="button" className="secondary-btn" onClick={() => removeResume(index)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
         )}
 
         <label>
@@ -85,11 +116,16 @@ function UploadForm({ onSubmit, onPayloadCapture }) {
           />
         </label>
         {!!jds.length && (
-          <p className="muted uploaded-files">
-            {Array.from(jds)
-              .map((file) => file.name)
-              .join(", ")}
-          </p>
+          <div className="uploaded-files">
+            {jds.map((file, index) => (
+              <div key={`${file.name}-${file.size}-${file.lastModified}`} className="inline-controls">
+                <span className="muted">{file.name}</span>
+                <button type="button" className="secondary-btn" onClick={() => removeJD(index)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
         )}
 
         <label>
