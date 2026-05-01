@@ -17,6 +17,26 @@ SKILL_SYNONYMS = {
 KNOWN_SKILLS = sorted(set(SKILL_SYNONYMS.keys()))
 EDU_KEYWORDS = ["bachelor", "master", "phd", "b.tech", "m.tech", "mba", "b.sc", "m.sc", "degree"]
 CERT_KEYWORDS = ["aws", "gcp", "azure", "pmp", "scrum", "kubernetes", "cka", "cissp"]
+CERT_SYNONYMS = {
+    "aws": ["amazon web services", "aws certified"],
+    "gcp": ["google cloud", "google cloud platform", "gcp certified"],
+    "azure": ["microsoft azure", "azure certified"],
+    "pmp": ["project management professional"],
+    "scrum": ["scrum master", "csm", "psm"],
+    "kubernetes": ["k8s", "ckad"],
+    "cka": ["certified kubernetes administrator"],
+    "cissp": ["certified information systems security professional"],
+}
+DEGREE_LEVELS = {
+    "b.sc": 1,
+    "bachelor": 1,
+    "b.tech": 1,
+    "m.sc": 2,
+    "master": 2,
+    "m.tech": 2,
+    "mba": 2,
+    "phd": 3,
+}
 
 SECTION_ORDER = [
     "summary",
@@ -74,8 +94,42 @@ def extract_experience(text: str) -> Dict[str, float]:
 
 def extract_certifications(text: str) -> List[str]:
     lower = text.lower()
-    found = [cert for cert in CERT_KEYWORDS if cert in lower]
+    found = []
+    for cert in CERT_KEYWORDS:
+        aliases = [cert] + CERT_SYNONYMS.get(cert, [])
+        if any(alias in lower for alias in aliases):
+            found.append(cert)
     return sorted(set(found))
+
+
+def extract_required_experience_years(text: str) -> float:
+    normalized = normalize_text(text)
+    candidates = [float(num) for num in re.findall(r"(\d+(?:\.\d+)?)\s*\+?\s*(?:years|yrs)", normalized)]
+    if not candidates:
+        range_matches = re.findall(
+            r"(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*(?:years|yrs)",
+            normalized,
+        )
+        for low, high in range_matches:
+            candidates.append(float(high))
+    return max(candidates) if candidates else 0.0
+
+
+def match_certifications(
+    resume_certifications: List[str], jd_required_certifications: List[str]
+) -> Dict[str, List[str]]:
+    resume_set = set(resume_certifications or [])
+    jd_set = set(jd_required_certifications or [])
+    return {
+        "matched": sorted(resume_set.intersection(jd_set)),
+        "missing": sorted(jd_set - resume_set),
+        "extra": sorted(resume_set - jd_set),
+    }
+
+
+def best_education_level(degrees: List[str]) -> int:
+    levels = [DEGREE_LEVELS.get(degree, 0) for degree in (degrees or [])]
+    return max(levels) if levels else 0
 
 
 def extract_entities_with_spacy(text: str) -> Dict[str, List[str]]:

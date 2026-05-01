@@ -27,16 +27,13 @@ function Charts({ rows }) {
   }, [rows]);
 
   const skillDistribution = useMemo(() => {
-    const bucket = {};
-    rows.forEach((row) => {
-      (row.matchedSkills || []).forEach((skill) => {
-        bucket[skill] = (bucket[skill] || 0) + 1;
-      });
-    });
-    return Object.entries(bucket)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 8);
+    return (rows || []).slice(0, 12).map((row, index) => ({
+      name: row.name || `Resume ${index + 1}`,
+      shortName: `R${index + 1}`,
+      matched: (row.matchedSkills || []).length,
+      missing: (row.missingSkills || []).length,
+      extra: (row.extraSkills || []).length,
+    }));
   }, [rows]);
 
   return (
@@ -79,10 +76,15 @@ function Charts({ rows }) {
         <h3>Skill Distribution</h3>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={skillDistribution}>
-            <XAxis dataKey="name" stroke="#c7d2fe" />
+            <XAxis dataKey="shortName" stroke="#c7d2fe" />
             <YAxis stroke="#c7d2fe" />
-            <Tooltip />
-            <Bar dataKey="value" radius={[10, 10, 0, 0]} fill="#14b8a6" />
+            <Tooltip
+              formatter={(value, key) => [value, key]}
+              labelFormatter={(_, payload) => payload?.[0]?.payload?.name || ""}
+            />
+            <Bar dataKey="matched" stackId="skills" radius={[8, 8, 0, 0]} fill="#22c55e" />
+            <Bar dataKey="missing" stackId="skills" fill="#f43f5e" />
+            <Bar dataKey="extra" stackId="skills" fill="#f59e0b" />
           </BarChart>
         </ResponsiveContainer>
       </article>

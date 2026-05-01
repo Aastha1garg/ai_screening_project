@@ -76,10 +76,19 @@ class UploadResultItem(BaseModel):
     format_score: float
     matched_skills: List[str]
     missing_skills: List[str]
+    extra_skills: List[str] = []
     partial_matches: List[str]
     experience: dict
     education: List[str]
+    required_education: List[str] = []
     certifications: List[str]
+    required_certifications: List[str] = []
+    matched_certifications: List[str] = []
+    missing_certifications: List[str] = []
+    extra_certifications: List[str] = []
+    education_match: str = ""
+    experience_match: str = ""
+    score_breakdown: dict = {}
     sentiment: str
     profile_label: str
     feedback: dict
@@ -433,10 +442,19 @@ async def upload_resume(
                     "format_score": result["format_check"].get("format_score", 0),
                     "matched_skills": result.get("matched_skills", []),
                     "missing_skills": result.get("missing_skills", []),
+                    "extra_skills": result.get("extra_skills", []),
                     "partial_matches": result.get("partial_matches", []),
                     "experience": result.get("experience", {}),
                     "education": result.get("education", []),
+                    "required_education": result.get("required_education", []),
                     "certifications": result.get("certifications", []),
+                    "required_certifications": result.get("required_certifications", []),
+                    "matched_certifications": result.get("matched_certifications", []),
+                    "missing_certifications": result.get("missing_certifications", []),
+                    "extra_certifications": result.get("extra_certifications", []),
+                    "education_match": result.get("education_match", ""),
+                    "experience_match": result.get("experience_match", ""),
+                    "score_breakdown": result.get("score_breakdown", {}),
                     "sentiment": result.get("sentiment", "neutral"),
                     "profile_label": result.get("profile_label", "Needs Improvement"),
                     "feedback": result["ai_feedback"],
