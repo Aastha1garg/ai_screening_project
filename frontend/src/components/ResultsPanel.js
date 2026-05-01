@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { apiClient } from "./api";
 
-function ResultsPanel({ results, token }) {
+function ResultsPanel({ results, token, shortlistedIds, onToggleShortlist }) {
   const [loadingKey, setLoadingKey] = useState("");
   const [feedbackByKey, setFeedbackByKey] = useState({});
   const [expandedByKey, setExpandedByKey] = useState({});
@@ -58,7 +58,12 @@ function ResultsPanel({ results, token }) {
           <div className="chart-box" key={getKey(item)}>
             <div className="score-row">
               <p className="score-line">{item.resume_name}</p>
-              <span className="pill">{item.jd_name}</span>
+              <div className="inline-controls">
+                <span className="pill">{item.jd_name}</span>
+                {(shortlistedIds || []).includes(Number(item.id)) && (
+                  <span className="shortlisted-badge">Shortlisted</span>
+                )}
+              </div>
             </div>
             <p>
               <strong>Final score:</strong> {item.score}
@@ -78,6 +83,15 @@ function ResultsPanel({ results, token }) {
                 disabled={loadingKey === getKey(item)}
               >
                 Regenerate Feedback
+              </button>
+              <button
+                type="button"
+                className={(shortlistedIds || []).includes(Number(item.id)) ? "secondary-btn" : ""}
+                onClick={() =>
+                  onToggleShortlist(Number(item.id), !(shortlistedIds || []).includes(Number(item.id)))
+                }
+              >
+                {(shortlistedIds || []).includes(Number(item.id)) ? "Remove Shortlist" : "Shortlist"}
               </button>
               {!!feedbackByKey[getKey(item)] && (
                 <button

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import AuthForm from "./components/AuthForm";
 import Sidebar from "./components/Sidebar";
 import Navbar from "./components/Navbar";
@@ -9,6 +9,7 @@ import ResumeTable from "./components/ResumeTable";
 import HistoryPage from "./components/HistoryPage";
 import DownloadPanel from "./components/DownloadPanel";
 import ComparePage from "./components/ComparePage";
+import ShortlistedCandidatesPage from "./components/ShortlistedCandidatesPage";
 import { apiClient } from "./components/api";
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [lastUploadPayload, setLastUploadPayload] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [shortlistedIds, setShortlistedIds] = useState([]);
 
   const parseJwtEmail = (jwtToken) => {
     try {
@@ -32,6 +34,11 @@ function App() {
   };
 
   const isAuthenticated = useMemo(() => !!token, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    refreshShortlisted(token).catch(() => {});
+  }, [token]);
 
   const handleLogin = (newToken) => {
     const email = parseJwtEmail(newToken);
@@ -49,6 +56,20 @@ function App() {
     setResults([]);
     setActivePage("dashboard");
     setNotifications([]);
+    setShortlistedIds([]);
+  };
+
+  const fetchShortlistedCandidates = async (authToken) => {
+    const res = await apiClient.get("/shortlist", {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    return res.data?.results || [];
+  };
+
+  const refreshShortlisted = async (authToken = token) => {
+    if (!authToken) return;
+    const candidates = await fetchShortlistedCandidates(authToken);
+    setShortlistedIds(candidates.map((item) => Number(item.id)));
   };
 
   const handleUpload = async (formData) => {
@@ -80,6 +101,7 @@ function App() {
       });
     }
     setNotifications((prev) => [...newNotifs, ...prev].slice(0, 20));
+    await refreshShortlisted(token);
   };
 
   const handleRetry = async () => {
@@ -100,6 +122,7 @@ function App() {
       (results || []).map((item) => {
         const numericScore = Number(item.score) || 0;
         return {
+          historyId: Number(item.id),
           name: item.resume_name || "Unknown Candidate",
           jobRole: item.jd_name || "General Role",
           score: `${numericScore}%`,
@@ -117,10 +140,27 @@ function App() {
           profileLabel: item.profile_label || "Needs Improvement",
           feedback: item.feedback || {},
           status: numericScore >= 75 ? "selected" : numericScore >= 50 ? "pending" : "rejected",
+          shortlisted:
+            shortlistedIds.includes(Number(item.id)) || Boolean(item.shortlisted),
         };
       }),
-    [results]
+    [results, shortlistedIds]
   );
+
+  const handleToggleShortlist = async (historyId, shouldShortlist) => {
+    if (!historyId) return;
+    if (shouldShortlist) {
+      await apiClient.post(`/shortlist/${historyId}`, null, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setShortlistedIds((prev) => (prev.includes(historyId) ? prev : [...prev, historyId]));
+      return;
+    }
+    await apiClient.delete(`/shortlist/${historyId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setShortlistedIds((prev) => prev.filter((id) => id !== historyId));
+  };
 
   if (!isAuthenticated) {
     return (
@@ -150,12 +190,38 @@ function App() {
           onLogout={handleLogout}
         />
         {activePage === "dashboard" && <Dashboard results={results} searchQuery={searchQuery} />}
-        {activePage === "dashboard" && <ResultsPanel results={results} token={token} />}
+        {activePage === "dashboard" && (
+          <ResultsPanel
+            results={results}
+            token={token}
+            shortlistedIds={shortlistedIds}
+            onToggleShortlist={handleToggleShortlist}
+          />
+        )}
         {activePage === "upload" && (
           <UploadForm onSubmit={handleUpload} onPayloadCapture={setLastUploadPayload} />
         )}
-        {activePage === "parsed" && <ResumeTable rows={parsedRows} />}
-        {activePage === "history" && <HistoryPage token={token} />}
+        {activePage === "parsed" && (
+          <ResumeTable
+            rows={parsedRows}
+            shortlistedIds={shortlistedIds}
+            onToggleShortlist={handleToggleShortlist}
+          />
+        )}
+        {activePage === "history" && (
+          <HistoryPage
+            token={token}
+            shortlistedIds={shortlistedIds}
+            onToggleShortlist={handleToggleShortlist}
+          />
+        )}
+        {activePage === "shortlisted" && (
+          <ShortlistedCandidatesPage
+            token={token}
+            onToggleShortlist={handleToggleShortlist}
+            onShortlistChanged={() => refreshShortlisted(token)}
+          />
+        )}
         {activePage === "compare" && <ComparePage token={token} />}
         {activePage === "download" && <DownloadPanel token={token} />}
         {activePage === "settings" && (

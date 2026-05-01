@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import FilterPanel from "./FilterPanel";
 
-function ResumeTable({ rows }) {
+function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
   const [selectedRow, setSelectedRow] = useState(null);
   const [filters, setFilters] = useState({
     score: "",
@@ -9,6 +9,7 @@ function ResumeTable({ rows }) {
     skillMatch: "",
     status: "",
     formatScore: "",
+    shortlistedOnly: false,
   });
   const [appliedFilters, setAppliedFilters] = useState({
     score: "",
@@ -16,6 +17,7 @@ function ResumeTable({ rows }) {
     skillMatch: "",
     status: "",
     formatScore: "",
+    shortlistedOnly: false,
   });
   const [sortBy, setSortBy] = useState("score");
   const [sortOrder, setSortOrder] = useState("desc");
@@ -24,7 +26,7 @@ function ResumeTable({ rows }) {
   const activeFilters = useMemo(
     () =>
       Object.entries(appliedFilters)
-        .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+        .filter(([, value]) => value !== "" && value !== null && value !== undefined && value !== false)
         .map(([key, value]) => ({ key, value })),
     [appliedFilters]
   );
@@ -36,7 +38,8 @@ function ResumeTable({ rows }) {
         (!appliedFilters.experience || r.totalExperience >= Number(appliedFilters.experience)) &&
         (!appliedFilters.skillMatch || r.skillScore >= Number(appliedFilters.skillMatch)) &&
         (!appliedFilters.status || r.status === appliedFilters.status) &&
-        (!appliedFilters.formatScore || r.formatScore >= Number(appliedFilters.formatScore))
+        (!appliedFilters.formatScore || r.formatScore >= Number(appliedFilters.formatScore)) &&
+        (!appliedFilters.shortlistedOnly || r.shortlisted)
     );
     const sorted = [...filtered];
     if (sortBy === "score") {
@@ -80,6 +83,7 @@ function ResumeTable({ rows }) {
         skillMatch: "",
         status: "",
         formatScore: "",
+        shortlistedOnly: false,
       });
       setFilters({
         score: "",
@@ -87,6 +91,7 @@ function ResumeTable({ rows }) {
         skillMatch: "",
         status: "",
         formatScore: "",
+        shortlistedOnly: false,
       });
       setSelectedRow(null);
       return;
@@ -112,6 +117,7 @@ function ResumeTable({ rows }) {
       skillMatch: "",
       status: "",
       formatScore: "",
+      shortlistedOnly: false,
     };
     setQuickTop10(false);
     setFilters(empty);
@@ -159,6 +165,7 @@ function ResumeTable({ rows }) {
             <th>Matched / Missing Skills</th>
             <th>Sentiment</th>
             <th>Status</th>
+            <th>Shortlist</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -195,6 +202,29 @@ function ResumeTable({ rows }) {
                 </td>
                 <td>
                   <span className={`status-pill ${row.status}`}>{row.status}</span>
+                  {(shortlistedIds.includes(row.historyId) || row.shortlisted) && (
+                    <span className="shortlisted-badge">Shortlisted</span>
+                  )}
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className={
+                      shortlistedIds.includes(row.historyId) || row.shortlisted
+                        ? "secondary-btn"
+                        : ""
+                    }
+                    onClick={() =>
+                      onToggleShortlist(
+                        row.historyId,
+                        !(shortlistedIds.includes(row.historyId) || row.shortlisted)
+                      )
+                    }
+                  >
+                    {shortlistedIds.includes(row.historyId) || row.shortlisted
+                      ? "Remove"
+                      : "Shortlist"}
+                  </button>
                 </td>
                 <td>
                   <button type="button" onClick={() => setSelectedRow(row)}>
@@ -205,7 +235,7 @@ function ResumeTable({ rows }) {
             ))
           ) : (
             <tr>
-              <td colSpan="9">No parsed resumes yet. Upload files to populate this table.</td>
+              <td colSpan="10">No parsed resumes yet. Upload files to populate this table.</td>
             </tr>
           )}
         </tbody>

@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, Text, text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Text, text
 from sqlalchemy.orm import Session
 
 from auth import (
@@ -47,6 +47,7 @@ class ScreeningHistory(Base):
     matched_skills = Column(Text, nullable=False, default="[]")
     missing_skills = Column(Text, nullable=False, default="[]")
     result_payload = Column(Text, nullable=False, default="{}")
+    shortlisted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -64,6 +65,7 @@ app.add_middleware(
 
 
 class UploadResultItem(BaseModel):
+    id: int
     rank: int
     resume_name: str
     jd_name: str
@@ -81,6 +83,7 @@ class UploadResultItem(BaseModel):
     sentiment: str
     profile_label: str
     feedback: dict
+    shortlisted: bool = False
 
 
 class UploadResponse(BaseModel):
@@ -95,6 +98,7 @@ class HistoryItem(BaseModel):
     date: datetime
     status: str
     format_score: float
+    shortlisted: bool = False
 
     class Config:
         from_attributes = True
@@ -124,6 +128,13 @@ class ResumeFilterPayload(BaseModel):
     top_n: Optional[int] = None
     sort_by: Optional[str] = None
     sort_order: Optional[str] = "desc"
+    shortlisted_only: Optional[bool] = None
+
+
+class AutoShortlistPayload(BaseModel):
+    min_skill_match: Optional[float] = None
+    min_score: Optional[float] = None
+    min_experience: Optional[float] = None
 
 
 class ComparePayload(BaseModel):
@@ -159,6 +170,7 @@ def _ensure_history_columns() -> None:
             "matched_skills": "TEXT DEFAULT '[]'",
             "missing_skills": "TEXT DEFAULT '[]'",
             "result_payload": "TEXT DEFAULT '{}'",
+            "shortlisted": "BOOLEAN DEFAULT 0",
         }
         for column_name, column_type in required.items():
             if column_name not in current:
@@ -244,6 +256,7 @@ def _serialize_history_row(row: ScreeningHistory) -> dict:
         "skill_score": float(row.skill_score or 0),
         "format_score": float(row.format_score or 0),
         "status": row.status,
+        "shortlisted": bool(row.shortlisted),
         "experience": float(experience.get("total_years", 0) or 0),
         "relevant_experience": float(experience.get("relevant_years", 0) or 0),
         "education": education,
@@ -266,6 +279,8 @@ def _filter_serialized_rows(rows: List[dict], payload: ResumeFilterPayload) -> L
     if payload.status:
         status = payload.status.strip().lower()
         filtered = [r for r in filtered if (r["status"] or "").lower() == status]
+    if payload.shortlisted_only is True:
+        filtered = [r for r in filtered if r.get("shortlisted")]
 
     sort_map = {
         "score": "score",
@@ -402,9 +417,11 @@ async def upload_resume(
                 result_payload=json.dumps(result),
             )
             db.add(history)
+            db.flush()
 
             raw_results.append(
                 {
+                    "id": history.id,
                     "resume_name": resume_name,
                     "jd_name": jd_name,
                     "resume_text": resume_text,
@@ -421,6 +438,7 @@ async def upload_resume(
                     "sentiment": result.get("sentiment", "neutral"),
                     "profile_label": result.get("profile_label", "Needs Improvement"),
                     "feedback": result["ai_feedback"],
+                    "shortlisted": bool(history.shortlisted),
                 }
             )
 
@@ -452,9 +470,111 @@ def get_history(
             "date": row.created_at,
             "status": row.status,
             "format_score": row.format_score,
+            "shortlisted": bool(row.shortlisted),
         }
         for row in rows
     ]
+
+
+@app.get("/shortlist")
+def get_shortlisted(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    rows = (
+        _user_history_query(db, current_user.id)
+        .filter(ScreeningHistory.shortlisted.is_(True))
+        .all()
+    )
+    serialized = [_serialize_history_row(row) for row in rows]
+    return {"count": len(serialized), "results": serialized}
+
+
+@app.post("/shortlist/{history_id}")
+def shortlist_candidate(
+    history_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = (
+        db.query(ScreeningHistory)
+        .filter(
+            ScreeningHistory.user_id == current_user.id,
+            ScreeningHistory.id == history_id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    row.shortlisted = True
+    db.commit()
+    db.refresh(row)
+    return {"message": "Candidate shortlisted", "candidate": _serialize_history_row(row)}
+
+
+@app.delete("/shortlist/{history_id}")
+def unshortlist_candidate(
+    history_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = (
+        db.query(ScreeningHistory)
+        .filter(
+            ScreeningHistory.user_id == current_user.id,
+            ScreeningHistory.id == history_id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    row.shortlisted = False
+    db.commit()
+    db.refresh(row)
+    return {"message": "Candidate removed from shortlist", "candidate": _serialize_history_row(row)}
+
+
+@app.post("/shortlist/auto")
+def auto_shortlist(
+    payload: AutoShortlistPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    rows = _user_history_query(db, current_user.id).all()
+    serialized = [_serialize_history_row(row) for row in rows]
+    shortlisted = serialized
+    if payload.min_skill_match is not None:
+        shortlisted = [r for r in shortlisted if r.get("skill_score", 0) >= payload.min_skill_match]
+    if payload.min_score is not None:
+        shortlisted = [r for r in shortlisted if r.get("score", 0) >= payload.min_score]
+    if payload.min_experience is not None:
+        shortlisted = [r for r in shortlisted if r.get("experience", 0) >= payload.min_experience]
+
+    shortlisted_ids = {row["id"] for row in shortlisted}
+    if shortlisted_ids:
+        (
+            db.query(ScreeningHistory)
+            .filter(
+                ScreeningHistory.user_id == current_user.id,
+                ScreeningHistory.id.in_(shortlisted_ids),
+            )
+            .update({ScreeningHistory.shortlisted: True}, synchronize_session=False)
+        )
+        db.commit()
+
+    refreshed = (
+        db.query(ScreeningHistory)
+        .filter(
+            ScreeningHistory.user_id == current_user.id,
+            ScreeningHistory.id.in_(shortlisted_ids),
+        )
+        .all()
+        if shortlisted_ids
+        else []
+    )
+    return {
+        "count": len(refreshed),
+        "results": [_serialize_history_row(row) for row in refreshed],
+    }
 
 
 def _user_history_query(db: Session, user_id: int):

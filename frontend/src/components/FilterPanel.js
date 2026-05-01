@@ -46,6 +46,14 @@ function FilterPanel({ filters, setFilters, onApply, onClear, activeFilters, res
           value={filters.formatScore}
           onChange={(e) => update("formatScore", e.target.value)}
         />
+        <label className="checkbox-filter">
+          <input
+            type="checkbox"
+            checked={Boolean(filters.shortlistedOnly)}
+            onChange={(e) => update("shortlistedOnly", e.target.checked)}
+          />
+          Show only shortlisted
+        </label>
       </div>
       <div className="inline-controls">
         <button type="button" onClick={onApply}>
