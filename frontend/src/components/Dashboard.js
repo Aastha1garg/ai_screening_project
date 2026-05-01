@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import Charts from "./Charts";
+import AnalyticsDashboard from "./AnalyticsDashboard";
 
 function inferStatus(score) {
   if (Number.isNaN(score)) {
@@ -99,6 +100,7 @@ function Dashboard({ results, searchQuery }) {
         </table>
       </section>
       <Charts rows={filteredRows} />
+      <AnalyticsDashboard rows={filteredRows} />
     </div>
   );
 }
