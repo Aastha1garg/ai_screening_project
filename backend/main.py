@@ -896,6 +896,10 @@ def explain_score(
             raise HTTPException(status_code=404, detail="JD source not found")
 
     rescored = run_resume_screening(resume_row.resume_text, jd_row.jd_text)
+    jd_count = max(1, len(rescored.get("jd_skills", [])))
+    matched_count = len(rescored.get("matched_skills", []))
+    partial_count = len(rescored.get("partial_matches", []))
+    confidence_score = round(min(100.0, ((matched_count + (0.5 * partial_count)) / jd_count) * 100.0), 2)
     return {
         "resume_id": resume_row.id,
         "jd_id": jd_row.id,
@@ -910,6 +914,7 @@ def explain_score(
         "experience": rescored.get("experience", {}),
         "score_breakdown": rescored.get("score_breakdown", {}),
         "final_score": rescored.get("final_score", 0),
+        "confidence_score": confidence_score,
     }
 
 

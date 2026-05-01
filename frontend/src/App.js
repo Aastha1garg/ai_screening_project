@@ -10,6 +10,8 @@ import HistoryPage from "./components/HistoryPage";
 import DownloadPanel from "./components/DownloadPanel";
 import ComparePage from "./components/ComparePage";
 import ShortlistedCandidatesPage from "./components/ShortlistedCandidatesPage";
+import ExplainPage from "./components/ExplainPage";
+import ImproveResume from "./components/ImproveResume";
 import { apiClient } from "./components/api";
 
 function App() {
@@ -282,6 +284,8 @@ function App() {
           />
         )}
         {activePage === "compare" && <ComparePage token={token} />}
+        {activePage === "explain" && <ExplainPage token={token} />}
+        {activePage === "improve" && <ImproveResume token={token} />}
         {activePage === "download" && <DownloadPanel token={token} />}
         {activePage === "settings" && (
           <section className="card">
