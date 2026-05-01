@@ -15,6 +15,7 @@ import { apiClient } from "./components/api";
 function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [userEmail, setUserEmail] = useState(localStorage.getItem("userEmail") || "");
+  const [authError, setAuthError] = useState("");
   const [activePage, setActivePage] = useState("dashboard");
   const [results, setResults] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,6 +47,7 @@ function App() {
     localStorage.setItem("userEmail", email);
     setToken(newToken);
     setUserEmail(email);
+    setAuthError("");
   };
 
   const handleLogout = () => {
@@ -59,6 +61,11 @@ function App() {
     setShortlistedIds([]);
   };
 
+  const handleAuthFailure = () => {
+    handleLogout();
+    setAuthError("Session expired. Please log in again.");
+  };
+
   const fetchShortlistedCandidates = async (authToken) => {
     const res = await apiClient.get("/shortlist", {
       headers: { Authorization: `Bearer ${authToken}` },
@@ -68,40 +75,55 @@ function App() {
 
   const refreshShortlisted = async (authToken = token) => {
     if (!authToken) return;
-    const candidates = await fetchShortlistedCandidates(authToken);
-    setShortlistedIds(candidates.map((item) => Number(item.id)));
+    try {
+      const candidates = await fetchShortlistedCandidates(authToken);
+      setShortlistedIds(candidates.map((item) => Number(item.id)));
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      throw err;
+    }
   };
 
   const handleUpload = async (formData) => {
-    const response = await apiClient.post("/upload", formData, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const nextResults = response.data.results || [];
-    setResults(nextResults);
-    const now = new Date().toISOString();
-    const newNotifs = [
-      {
-        id: `upload-${Date.now()}`,
-        message: `Resume upload completed (${nextResults.length} results generated).`,
-        timestamp: now,
-      },
-    ];
-    if (nextResults.some((item) => Number(item.score) > 80)) {
-      newNotifs.push({
-        id: `high-score-${Date.now()}-1`,
-        message: "New high-score candidate detected (>80).",
-        timestamp: now,
+    try {
+      const response = await apiClient.post("/upload", formData, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      const nextResults = response.data.results || [];
+      setResults(nextResults);
+      const now = new Date().toISOString();
+      const newNotifs = [
+        {
+          id: `upload-${Date.now()}`,
+          message: `Resume upload completed (${nextResults.length} results generated).`,
+          timestamp: now,
+        },
+      ];
+      if (nextResults.some((item) => Number(item.score) > 80)) {
+        newNotifs.push({
+          id: `high-score-${Date.now()}-1`,
+          message: "New high-score candidate detected (>80).",
+          timestamp: now,
+        });
+      }
+      if (nextResults.some((item) => Number(item.format_score) < 70)) {
+        newNotifs.push({
+          id: `format-${Date.now()}-2`,
+          message: "Format mismatch warning found in one or more resumes.",
+          timestamp: now,
+        });
+      }
+      setNotifications((prev) => [...newNotifs, ...prev].slice(0, 20));
+      await refreshShortlisted(token);
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleAuthFailure();
+      }
+      throw err;
     }
-    if (nextResults.some((item) => Number(item.format_score) < 70)) {
-      newNotifs.push({
-        id: `format-${Date.now()}-2`,
-        message: "Format mismatch warning found in one or more resumes.",
-        timestamp: now,
-      });
-    }
-    setNotifications((prev) => [...newNotifs, ...prev].slice(0, 20));
-    await refreshShortlisted(token);
   };
 
   const handleRetry = async () => {
@@ -149,23 +171,31 @@ function App() {
 
   const handleToggleShortlist = async (historyId, shouldShortlist) => {
     if (!historyId) return;
-    if (shouldShortlist) {
-      await apiClient.post(`/shortlist/${historyId}`, null, {
+    try {
+      if (shouldShortlist) {
+        await apiClient.post(`/shortlist/${historyId}`, null, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setShortlistedIds((prev) => (prev.includes(historyId) ? prev : [...prev, historyId]));
+        return;
+      }
+      await apiClient.delete(`/shortlist/${historyId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setShortlistedIds((prev) => (prev.includes(historyId) ? prev : [...prev, historyId]));
-      return;
+      setShortlistedIds((prev) => prev.filter((id) => id !== historyId));
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      throw err;
     }
-    await apiClient.delete(`/shortlist/${historyId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setShortlistedIds((prev) => prev.filter((id) => id !== historyId));
   };
 
   if (!isAuthenticated) {
     return (
       <div className="auth-wrapper">
-        <AuthForm onAuthSuccess={handleLogin} />
+        <AuthForm onAuthSuccess={handleLogin} initialError={authError} />
       </div>
     );
   }
