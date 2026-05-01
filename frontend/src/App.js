@@ -21,6 +21,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [lastUploadPayload, setLastUploadPayload] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [shortlistedIds, setShortlistedIds] = useState([]);
 
   const parseJwtEmail = (jwtToken) => {
@@ -39,6 +40,7 @@ function App() {
   useEffect(() => {
     if (!token) return;
     refreshShortlisted(token).catch(() => {});
+    refreshNotifications(token).catch(() => {});
   }, [token]);
 
   const handleLogin = (newToken) => {
@@ -58,6 +60,7 @@ function App() {
     setResults([]);
     setActivePage("dashboard");
     setNotifications([]);
+    setUnreadNotifications(0);
     setShortlistedIds([]);
   };
 
@@ -71,6 +74,42 @@ function App() {
       headers: { Authorization: `Bearer ${authToken}` },
     });
     return res.data?.results || [];
+  };
+
+  const refreshNotifications = async (authToken = token) => {
+    if (!authToken) return;
+    try {
+      const res = await apiClient.get("/notifications", {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      setNotifications(res.data?.notifications || []);
+      setUnreadNotifications(Number(res.data?.unread_count || 0));
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      throw err;
+    }
+  };
+
+  const markNotificationsRead = async (authToken = token) => {
+    if (!authToken) return;
+    try {
+      await apiClient.post(
+        "/notifications/read-all",
+        null,
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+      setUnreadNotifications(0);
+      setNotifications((prev) => prev.map((item) => ({ ...item, is_read: true })));
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      throw err;
+    }
   };
 
   const refreshShortlisted = async (authToken = token) => {
@@ -94,29 +133,7 @@ function App() {
       });
       const nextResults = response.data.results || [];
       setResults(nextResults);
-      const now = new Date().toISOString();
-      const newNotifs = [
-        {
-          id: `upload-${Date.now()}`,
-          message: `Resume upload completed (${nextResults.length} results generated).`,
-          timestamp: now,
-        },
-      ];
-      if (nextResults.some((item) => Number(item.score) > 80)) {
-        newNotifs.push({
-          id: `high-score-${Date.now()}-1`,
-          message: "New high-score candidate detected (>80).",
-          timestamp: now,
-        });
-      }
-      if (nextResults.some((item) => Number(item.format_score) < 70)) {
-        newNotifs.push({
-          id: `format-${Date.now()}-2`,
-          message: "Format mismatch warning found in one or more resumes.",
-          timestamp: now,
-        });
-      }
-      setNotifications((prev) => [...newNotifs, ...prev].slice(0, 20));
+      await refreshNotifications(token);
       await refreshShortlisted(token);
     } catch (err) {
       if (err?.response?.status === 401) {
@@ -227,6 +244,8 @@ function App() {
           onSearchChange={setSearchQuery}
           currentUser={{ email: userEmail }}
           notifications={notifications}
+          unreadCount={unreadNotifications}
+          onNotificationsOpen={() => markNotificationsRead(token)}
           onLogout={handleLogout}
         />
         {activePage === "dashboard" && <Dashboard results={results} searchQuery={searchQuery} />}

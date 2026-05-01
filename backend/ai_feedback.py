@@ -146,3 +146,67 @@ def generate_ai_feedback(
     except Exception:
         pass
     return _rule_based_feedback(score, matched_skills, missing_skills)
+
+
+def _normalize_resume_improvement(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "improved_summary": str(payload.get("improved_summary", "")).strip(),
+        "improved_bullets": _as_list(payload.get("improved_bullets")),
+        "missing_keywords": _as_list(payload.get("missing_keywords")),
+        "ats_suggestions": _as_list(payload.get("ats_suggestions")),
+    }
+
+
+def _build_resume_improvement_prompt(resume_text: str, jd_text: str) -> str:
+    return (
+        "Improve this resume for ATS optimization based on job description.\n\n"
+        "Return strict JSON with keys:\n"
+        '{ "improved_summary": "", "improved_bullets": [], "missing_keywords": [], "ats_suggestions": [] }\n\n'
+        "Constraints:\n"
+        "- Keep output concise and recruiter-friendly\n"
+        "- Focus on high-impact, measurable rewrite suggestions\n"
+        "- Include only keywords truly missing from resume but present in JD\n\n"
+        f"Job description:\n{jd_text}\n\n"
+        f"Resume:\n{resume_text}"
+    )
+
+
+def _rule_based_resume_improvement(
+    resume_text: str, jd_text: str, missing_skills: List[str]
+) -> Dict[str, Any]:
+    missing_hint = ", ".join(missing_skills[:8]) if missing_skills else "role-specific keywords"
+    return {
+        "improved_summary": (
+            "Results-driven professional aligned to the target role, with proven delivery on "
+            "cross-functional projects and measurable business outcomes."
+        ),
+        "improved_bullets": [
+            "Led end-to-end delivery of key initiatives with measurable impact on performance metrics.",
+            "Collaborated across teams to implement scalable solutions aligned with role requirements.",
+            "Optimized processes through automation, reducing turnaround time and improving reliability.",
+        ],
+        "missing_keywords": missing_skills[:12],
+        "ats_suggestions": [
+            f"Include role-critical keywords such as: {missing_hint}.",
+            "Mirror JD phrasing in resume summary and top 3 experience bullets.",
+            "Quantify achievements using metrics (%, $, time saved, scale).",
+            "Use consistent section headers: Summary, Experience, Skills, Education, Certifications.",
+        ],
+    }
+
+
+def generate_resume_improvement(
+    resume_text: str, jd_text: str, missing_skills: List[str]
+) -> Dict[str, Any]:
+    prompt = _build_resume_improvement_prompt(resume_text, jd_text)
+    try:
+        payload = _call_groq(prompt) or _call_openrouter(prompt)
+        if payload:
+            normalized = _normalize_resume_improvement(payload)
+            # Ensure missing keywords remains grounded in extracted signals.
+            if not normalized["missing_keywords"]:
+                normalized["missing_keywords"] = missing_skills[:12]
+            return normalized
+    except Exception:
+        pass
+    return _rule_based_resume_improvement(resume_text, jd_text, missing_skills)

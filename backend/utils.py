@@ -1,11 +1,16 @@
 import re
 from datetime import datetime
+from functools import lru_cache
 from typing import Dict, List, Set, Tuple
 
 try:
     import spacy
+    from spacy.matcher import PhraseMatcher
 except Exception:  # pragma: no cover
     spacy = None
+    PhraseMatcher = None
+
+from sentence_transformers import SentenceTransformer
 
 SKILL_SYNONYMS = {
     "react": ["react.js", "frontend", "javascript"],
@@ -14,7 +19,11 @@ SKILL_SYNONYMS = {
     "gcp": ["google cloud", "bigquery", "cloud run"],
 }
 
-KNOWN_SKILLS = sorted(set(SKILL_SYNONYMS.keys()))
+KNOWN_SKILLS = sorted(
+    set(SKILL_SYNONYMS.keys()).union(
+        {term for aliases in SKILL_SYNONYMS.values() for term in aliases}
+    )
+)
 EDU_KEYWORDS = ["bachelor", "master", "phd", "b.tech", "m.tech", "mba", "b.sc", "m.sc", "degree"]
 CERT_KEYWORDS = ["aws", "gcp", "azure", "pmp", "scrum", "kubernetes", "cka", "cissp"]
 CERT_SYNONYMS = {
@@ -53,6 +62,8 @@ def normalize_text(text: str) -> str:
 
 
 _NLP = None
+_SKILL_MATCHER = None
+_SKILL_ALIAS_TO_CANONICAL: Dict[str, str] = {}
 
 
 def get_nlp():
@@ -71,13 +82,55 @@ def get_nlp():
     return _NLP
 
 
+@lru_cache(maxsize=1)
+def get_sentence_model() -> SentenceTransformer:
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
+
+def _build_skill_alias_map(synonyms: Dict[str, List[str]]) -> Dict[str, str]:
+    alias_map: Dict[str, str] = {}
+    for canonical, aliases in synonyms.items():
+        alias_map[canonical.lower()] = canonical
+        for alias in aliases:
+            alias_map[alias.lower()] = canonical
+    return alias_map
+
+
+def get_skill_phrase_matcher(synonyms: Dict[str, List[str]] = SKILL_SYNONYMS):
+    global _SKILL_MATCHER, _SKILL_ALIAS_TO_CANONICAL
+    nlp = get_nlp()
+    if nlp is None or PhraseMatcher is None:
+        return None
+    if _SKILL_MATCHER is not None:
+        return _SKILL_MATCHER
+
+    _SKILL_ALIAS_TO_CANONICAL = _build_skill_alias_map(synonyms)
+    matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+    terms = sorted(_SKILL_ALIAS_TO_CANONICAL.keys())
+    patterns = [nlp.make_doc(term) for term in terms]
+    matcher.add("SKILL", patterns)
+    _SKILL_MATCHER = matcher
+    return _SKILL_MATCHER
+
+
 def extract_skills(text: str, synonyms: Dict[str, List[str]] = SKILL_SYNONYMS) -> Set[str]:
-    normalized = normalize_text(text)
+    nlp = get_nlp()
+    matcher = get_skill_phrase_matcher(synonyms)
+    if nlp is None or matcher is None:
+        normalized = normalize_text(text)
+        found = set()
+        for base_skill, terms in synonyms.items():
+            candidates = [base_skill] + terms
+            if any(term in normalized for term in candidates):
+                found.add(base_skill)
+        return found
+
+    doc = nlp(normalize_text(text))
     found = set()
-    for base_skill, terms in synonyms.items():
-        candidates = [base_skill] + terms
-        if any(term in normalized for term in candidates):
-            found.add(base_skill)
+    for _, start, end in matcher(doc):
+        alias = doc[start:end].text.lower().strip()
+        canonical = _SKILL_ALIAS_TO_CANONICAL.get(alias, alias)
+        found.add(canonical)
     return found
 
 
@@ -142,6 +195,19 @@ def extract_entities_with_spacy(text: str) -> Dict[str, List[str]]:
     return {"organizations": organizations, "dates": dates}
 
 
+@lru_cache(maxsize=2048)
+def _cached_skill_embedding(skill: str) -> Tuple[float, ...]:
+    model = get_sentence_model()
+    vector = model.encode(skill, normalize_embeddings=True)
+    return tuple(float(value) for value in vector)
+
+
+def _cosine_similarity(skill_a: str, skill_b: str) -> float:
+    emb_a = _cached_skill_embedding(skill_a.lower().strip())
+    emb_b = _cached_skill_embedding(skill_b.lower().strip())
+    return sum(a * b for a, b in zip(emb_a, emb_b))
+
+
 def skill_matching_score(resume_skills: Set[str], jd_skills: Set[str]) -> Tuple[float, Dict]:
     if not jd_skills:
         return 0.0, {
@@ -151,34 +217,55 @@ def skill_matching_score(resume_skills: Set[str], jd_skills: Set[str]) -> Tuple[
             "irrelevant_skills": list(resume_skills),
         }
 
-    exact_matches = sorted(resume_skills.intersection(jd_skills))
+    matched_jd_skills: Set[str] = set()
+    partial_jd_skills: Set[str] = set()
+    used_resume_skills: Set[str] = set()
+    exact_matches: List[str] = []
     synonym_matches: List[str] = []
     related_matches: List[str] = []
-    irrelevant_skills: List[str] = []
 
-    for skill in sorted(resume_skills - set(exact_matches)):
-        if skill in SKILL_SYNONYMS and any(
-            related in jd_skills for related in SKILL_SYNONYMS[skill]
-        ):
-            synonym_matches.append(skill)
-        elif any(skill in terms for terms in SKILL_SYNONYMS.values()):
-            related_matches.append(skill)
-        else:
-            irrelevant_skills.append(skill)
+    for jd_skill in sorted(jd_skills):
+        best_resume_skill = None
+        best_score = -1.0
+        for resume_skill in sorted(resume_skills):
+            similarity = _cosine_similarity(jd_skill, resume_skill)
+            if similarity > best_score:
+                best_score = similarity
+                best_resume_skill = resume_skill
+
+        if best_resume_skill is None:
+            continue
+
+        if best_score > 0.75:
+            matched_jd_skills.add(jd_skill)
+            used_resume_skills.add(best_resume_skill)
+            if jd_skill == best_resume_skill:
+                exact_matches.append(jd_skill)
+            else:
+                synonym_matches.append(jd_skill)
+        elif best_score >= 0.5:
+            partial_jd_skills.add(jd_skill)
+            used_resume_skills.add(best_resume_skill)
+            related_matches.append(jd_skill)
+
+    missing_skills = sorted(jd_skills - matched_jd_skills - partial_jd_skills)
+    irrelevant_skills = sorted(resume_skills - used_resume_skills)
 
     raw_score = (
-        1.0 * len(exact_matches)
-        + 0.6 * len(synonym_matches)
-        + 0.3 * len(related_matches)
+        1.0 * len(matched_jd_skills)
+        + 0.6 * len(related_matches)
         - 0.2 * len(irrelevant_skills)
     )
     max_score = max(1.0, float(len(jd_skills)))
     score = max(0.0, min(100.0, (raw_score / max_score) * 100.0))
 
     return score, {
-        "exact_matches": exact_matches,
-        "synonym_matches": synonym_matches,
-        "related_matches": related_matches,
+        "exact_matches": sorted(exact_matches),
+        "synonym_matches": sorted(synonym_matches),
+        "related_matches": sorted(related_matches),
+        "matched_skills": sorted(matched_jd_skills),
+        "partial_matches": sorted(partial_jd_skills),
+        "missing_skills": missing_skills,
         "irrelevant_skills": irrelevant_skills,
     }
 

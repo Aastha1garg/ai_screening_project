@@ -27,7 +27,7 @@ from auth import (
     hash_password,
 )
 from format_checker import analyze_resume_format, detect_sections, read_upload_file
-from ai_feedback import generate_ai_feedback
+from ai_feedback import generate_ai_feedback, generate_resume_improvement
 from scoring import run_resume_screening
 
 
@@ -48,6 +48,16 @@ class ScreeningHistory(Base):
     missing_skills = Column(Text, nullable=False, default="[]")
     result_payload = Column(Text, nullable=False, default="{}")
     shortlisted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -113,6 +123,18 @@ class HistoryItem(BaseModel):
         from_attributes = True
 
 
+class NotificationItem(BaseModel):
+    id: int
+    message: str
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationsResponse(BaseModel):
+    unread_count: int
+    notifications: List[NotificationItem]
+
+
 class FormatCheckResult(BaseModel):
     resume_name: str
     format_score: int
@@ -157,6 +179,16 @@ class AIFeedbackRequest(BaseModel):
     score: float
     matched_skills: List[str] = []
     missing_skills: List[str] = []
+
+
+class ExplainScoreRequest(BaseModel):
+    resume_id: int
+    jd_id: Optional[int] = None
+
+
+class ImproveResumeRequest(BaseModel):
+    resume_id: int
+    jd_id: Optional[int] = None
 
 
 _ai_feedback_cache: dict = {}
@@ -273,6 +305,13 @@ def _serialize_history_row(row: ScreeningHistory) -> dict:
         "missing_skills": missing,
         "date": row.created_at.isoformat(),
     }
+
+
+def create_notification(db: Session, user_id: int, message: str) -> Notification:
+    notification = Notification(user_id=user_id, message=message, is_read=False)
+    db.add(notification)
+    db.flush()
+    return notification
 
 
 def _filter_serialized_rows(rows: List[dict], payload: ResumeFilterPayload) -> List[dict]:
@@ -464,6 +503,18 @@ async def upload_resume(
 
     db.commit()
 
+    # Create user-scoped notifications after scoring finishes.
+    create_notification(
+        db,
+        current_user.id,
+        f"Resume upload completed ({len(raw_results)} results generated).",
+    )
+    if any(float(item.get("score", 0)) >= 80 for item in raw_results):
+        create_notification(db, current_user.id, "New high-score candidate detected (>=80).")
+    if any(float(item.get("format_score", 0)) < 70 for item in raw_results):
+        create_notification(db, current_user.id, "Format mismatch warning found in one or more resumes.")
+    db.commit()
+
     ranked = sorted(raw_results, key=lambda item: item.get("score", 0), reverse=True)
     final_results = [
         UploadResultItem(rank=index + 1, **item) for index, item in enumerate(ranked)
@@ -494,6 +545,41 @@ def get_history(
         }
         for row in rows
     ]
+
+
+@app.get("/notifications", response_model=NotificationsResponse)
+def get_notifications(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    rows = (
+        db.query(Notification)
+        .filter(Notification.user_id == current_user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(25)
+        .all()
+    )
+    unread_count = (
+        db.query(Notification)
+        .filter(Notification.user_id == current_user.id, Notification.is_read.is_(False))
+        .count()
+    )
+    return {
+        "unread_count": unread_count,
+        "notifications": rows,
+    }
+
+
+@app.post("/notifications/read-all")
+def mark_notifications_read(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    (
+        db.query(Notification)
+        .filter(Notification.user_id == current_user.id, Notification.is_read.is_(False))
+        .update({Notification.is_read: True}, synchronize_session=False)
+    )
+    db.commit()
+    return {"message": "Notifications marked as read"}
 
 
 @app.get("/shortlist")
@@ -603,6 +689,21 @@ def _user_history_query(db: Session, user_id: int):
         .filter(ScreeningHistory.user_id == user_id)
         .order_by(ScreeningHistory.created_at.desc())
     )
+
+
+def _get_user_history_row(db: Session, user_id: int, history_id: int) -> Optional[ScreeningHistory]:
+    return (
+        db.query(ScreeningHistory)
+        .filter(ScreeningHistory.user_id == user_id, ScreeningHistory.id == history_id)
+        .first()
+    )
+
+
+def _safe_json_loads(raw: str, default):
+    try:
+        return json.loads(raw or "")
+    except (json.JSONDecodeError, TypeError):
+        return default
 
 
 @app.get("/download/all")
@@ -776,6 +877,79 @@ def compare_resumes(
         candidates.append(serialized)
 
     return {"candidates": candidates}
+
+
+@app.post("/explain-score")
+def explain_score(
+    payload: ExplainScoreRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    resume_row = _get_user_history_row(db, current_user.id, payload.resume_id)
+    if not resume_row:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    jd_row = resume_row
+    if payload.jd_id is not None:
+        jd_row = _get_user_history_row(db, current_user.id, payload.jd_id)
+        if not jd_row:
+            raise HTTPException(status_code=404, detail="JD source not found")
+
+    rescored = run_resume_screening(resume_row.resume_text, jd_row.jd_text)
+    return {
+        "resume_id": resume_row.id,
+        "jd_id": jd_row.id,
+        "resume_name": resume_row.resume_name,
+        "jd_name": jd_row.jd_name,
+        "resume_skills": rescored.get("resume_skills", []),
+        "jd_skills": rescored.get("jd_skills", []),
+        "matched_skills": rescored.get("matched_skills", []),
+        "missing_skills": rescored.get("missing_skills", []),
+        "partial_matches": rescored.get("partial_matches", []),
+        "extra_skills": rescored.get("extra_skills", []),
+        "experience": rescored.get("experience", {}),
+        "score_breakdown": rescored.get("score_breakdown", {}),
+        "final_score": rescored.get("final_score", 0),
+    }
+
+
+@app.post("/improve-resume")
+def improve_resume(
+    payload: ImproveResumeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    resume_row = _get_user_history_row(db, current_user.id, payload.resume_id)
+    if not resume_row:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    jd_row = resume_row
+    if payload.jd_id is not None:
+        jd_row = _get_user_history_row(db, current_user.id, payload.jd_id)
+        if not jd_row:
+            raise HTTPException(status_code=404, detail="JD source not found")
+
+    payload_cache = _safe_json_loads(resume_row.result_payload, {})
+    missing_skills = payload_cache.get("missing_skills", [])
+    if jd_row.id != resume_row.id:
+        rescored = run_resume_screening(resume_row.resume_text, jd_row.jd_text)
+        missing_skills = rescored.get("missing_skills", missing_skills)
+
+    improvement = generate_resume_improvement(
+        resume_text=resume_row.resume_text,
+        jd_text=jd_row.jd_text,
+        missing_skills=missing_skills or [],
+    )
+    return {
+        "resume_id": resume_row.id,
+        "jd_id": jd_row.id,
+        "resume_name": resume_row.resume_name,
+        "jd_name": jd_row.jd_name,
+        "improved_summary": improvement.get("improved_summary", ""),
+        "improved_bullets": improvement.get("improved_bullets", []),
+        "missing_keywords": improvement.get("missing_keywords", []),
+        "ats_suggestions": improvement.get("ats_suggestions", []),
+    }
 
 
 @app.post("/ai-feedback")

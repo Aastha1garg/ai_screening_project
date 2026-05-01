@@ -86,25 +86,42 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
     cert_match = match_certifications(certifications, required_certifications)
     cert_score = certification_score(cert_match)
 
+    format_result = evaluate_format(resume_text, template_text or jd_text)
     exp_score, experience_match = experience_score(total_experience, required_experience)
+    format_score = round(float(format_result.get("format_score", 0) or 0), 2)
+
+    result = {
+        "skill_score": round(skill_score, 2),
+        "similarity_score": similarity,
+        "experience_score": round(exp_score, 2),
+        "education_score": round(edu_score, 2),
+        "certification_score": round(cert_score, 2),
+        "format_score": format_score,
+    }
+
+    # Keep scoring robust if any component is absent in future refactors.
+    result.setdefault("similarity_score", 0)
+    result.setdefault("experience_score", 0)
+    result.setdefault("education_score", 0)
+    result.setdefault("certification_score", 0)
+    result.setdefault("format_score", 0)
 
     final_score = round(
-        (0.4 * skill_score)
-        + (0.2 * similarity)
-        + (0.2 * exp_score)
-        + (0.1 * edu_score)
-        + (0.1 * cert_score),
+        (0.6 * result["skill_score"])
+        + (0.15 * result.get("similarity_score", 0))
+        + (0.1 * result.get("experience_score", 0))
+        + (0.05 * result.get("education_score", 0))
+        + (0.05 * result.get("certification_score", 0))
+        + (0.05 * result.get("format_score", 0)),
         2,
     )
+    result["final_score"] = final_score
 
-    format_result = evaluate_format(resume_text, template_text or jd_text)
     entities = extract_entities_with_spacy(resume_text)
-    partial_matches = sorted(result for result in skill_breakdown.get("synonym_matches", []))
-    matched_skill_set = set(skill_breakdown.get("exact_matches", [])) | set(
-        skill_breakdown.get("synonym_matches", [])
-    )
+    partial_matches = sorted(skill_breakdown.get("partial_matches", []))
+    matched_skill_set = set(skill_breakdown.get("matched_skills", []))
     extra_skills = sorted(skill_breakdown.get("irrelevant_skills", []))
-    missing_skills = sorted(jd_skills - matched_skill_set)
+    missing_skills = sorted(skill_breakdown.get("missing_skills", []))
 
     if final_score >= 75:
         sentiment = "positive"
@@ -116,13 +133,7 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
         sentiment = "weak"
         profile_label = "Needs Improvement"
 
-    result = {
-        "skill_score": round(skill_score, 2),
-        "similarity_score": similarity,
-        "experience_score": round(exp_score, 2),
-        "education_score": round(edu_score, 2),
-        "certification_score": round(cert_score, 2),
-        "final_score": final_score,
+    result.update({
         "skill_breakdown": skill_breakdown,
         "format_check": format_result,
         "resume_skills": sorted(resume_skills),
@@ -147,23 +158,31 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
         "education_match": education_match,
         "experience_match": experience_match,
         "score_breakdown": {
-            "skill_score": round(skill_score, 2),
-            "similarity_score": similarity,
-            "exp_score": round(exp_score, 2),
-            "edu_score": round(edu_score, 2),
-            "cert_score": round(cert_score, 2),
+            "skill": result["skill_score"],
+            "similarity": result.get("similarity_score", 0),
+            "experience": result.get("experience_score", 0),
+            "education": result.get("education_score", 0),
+            "certification": result.get("certification_score", 0),
+            "format": result.get("format_score", 0),
+            # Backward-compatible aliases for existing consumers.
+            "skill_score": result["skill_score"],
+            "similarity_score": result.get("similarity_score", 0),
+            "exp_score": result.get("experience_score", 0),
+            "edu_score": result.get("education_score", 0),
+            "cert_score": result.get("certification_score", 0),
             "weights": {
-                "skill": 0.4,
-                "similarity": 0.2,
-                "experience": 0.2,
-                "education": 0.1,
-                "certification": 0.1,
+                "skill": 0.6,
+                "similarity": 0.15,
+                "experience": 0.1,
+                "education": 0.05,
+                "certification": 0.05,
+                "format": 0.05,
             },
         },
         "entities": entities,
         "sentiment": sentiment,
         "profile_label": profile_label,
-    }
+    })
     matched_skills = result["matched_skills"]
     missing_skills = result["missing_skills"]
     # AI feedback is generated on-demand via /ai-feedback endpoint.

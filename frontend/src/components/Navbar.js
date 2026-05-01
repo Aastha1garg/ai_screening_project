@@ -1,10 +1,17 @@
 import React, { useMemo, useState } from "react";
 import { FiBell, FiChevronDown, FiSearch } from "react-icons/fi";
 
-function Navbar({ searchQuery, onSearchChange, currentUser, notifications, onLogout }) {
+function Navbar({
+  searchQuery,
+  onSearchChange,
+  currentUser,
+  notifications,
+  unreadCount = 0,
+  onNotificationsOpen,
+  onLogout,
+}) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const unreadCount = notifications.length;
   const displayName = currentUser?.email || "User";
   const initials = useMemo(() => displayName.trim().charAt(0).toUpperCase(), [displayName]);
 
@@ -26,7 +33,13 @@ function Navbar({ searchQuery, onSearchChange, currentUser, notifications, onLog
           type="button"
           aria-label="Notifications"
           onClick={() => {
-            setShowNotifications((prev) => !prev);
+            setShowNotifications((prev) => {
+              const next = !prev;
+              if (next && onNotificationsOpen) {
+                onNotificationsOpen();
+              }
+              return next;
+            });
             setShowProfileMenu(false);
           }}
         >
@@ -40,11 +53,11 @@ function Navbar({ searchQuery, onSearchChange, currentUser, notifications, onLog
               notifications.map((item) => (
                 <p key={item.id} className="notification-item">
                   <strong>{item.message}</strong>
-                  <span className="muted">{new Date(item.timestamp).toLocaleString()}</span>
+                  <span className="muted">{new Date(item.created_at).toLocaleString()}</span>
                 </p>
               ))
             ) : (
-              <p className="muted">No notifications yet.</p>
+              <p className="muted">No notifications</p>
             )}
           </div>
         )}

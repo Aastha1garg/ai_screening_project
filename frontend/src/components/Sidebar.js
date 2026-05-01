@@ -9,6 +9,8 @@ import {
   FiLogOut,
   FiSettings,
   FiUploadCloud,
+  FiHelpCircle,
+  FiEdit3,
 } from "react-icons/fi";
 
 const sidebarItems = [
@@ -18,6 +20,8 @@ const sidebarItems = [
   { key: "history", label: "History", icon: FiClock },
   { key: "shortlisted", label: "Shortlisted Candidates", icon: FiStar },
   { key: "compare", label: "Compare", icon: FiGitBranch },
+  { key: "explain", label: "Explain AI", icon: FiHelpCircle },
+  { key: "improve", label: "Improve Resume", icon: FiEdit3 },
   { key: "download", label: "Download", icon: FiDownload },
   { key: "settings", label: "Settings", icon: FiSettings },
 ];
