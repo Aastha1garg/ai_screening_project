@@ -89,7 +89,6 @@ function UploadForm({ onSubmit, onPayloadCapture }) {
             onChange={handleResumeUpload}
             accept=".pdf,.docx,.txt"
             multiple
-            required
           />
         </label>
         {!!resumes.length && (
@@ -112,7 +111,6 @@ function UploadForm({ onSubmit, onPayloadCapture }) {
             onChange={handleJDUpload}
             accept=".pdf,.docx,.txt"
             multiple
-            required
           />
         </label>
         {!!jds.length && (
