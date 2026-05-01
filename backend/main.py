@@ -357,6 +357,8 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         token = create_access_token(subject=user.email)
         return TokenResponse(access_token=token)
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(" ERROR:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
