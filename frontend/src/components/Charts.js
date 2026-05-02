@@ -27,13 +27,16 @@ function Charts({ rows }) {
   }, [rows]);
 
   const skillDistribution = useMemo(() => {
-    return (rows || []).slice(0, 12).map((row, index) => ({
-      name: row.name || `Resume ${index + 1}`,
-      shortName: `R${index + 1}`,
-      matched: (row.matchedSkills || []).length,
-      missing: (row.missingSkills || []).length,
-      extra: (row.extraSkills || []).length,
-    }));
+    return (rows || []).slice(0, 12).map((row, index) => {
+      const fullName = row.name || `Resume ${index + 1}`;
+      return {
+        name: fullName,
+        shortName: fullName.slice(0, 10) + (fullName.length > 10 ? "..." : ""),
+        matched: (row.matchedSkills || []).length,
+        missing: (row.missingSkills || []).length,
+        extra: (row.extraSkills || []).length,
+      };
+    });
   }, [rows]);
 
   return (

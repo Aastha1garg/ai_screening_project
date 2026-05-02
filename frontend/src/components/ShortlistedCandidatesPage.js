@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { apiClient } from "./api";
 
-function ShortlistedCandidatesPage({ token, onToggleShortlist, onShortlistChanged }) {
-  const [candidates, setCandidates] = useState([]);
+function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggleShortlist, onShortlistChanged }) {
   const [thresholds, setThresholds] = useState({
     min_skill_match: "",
     min_score: "",
@@ -12,19 +11,9 @@ function ShortlistedCandidatesPage({ token, onToggleShortlist, onShortlistChange
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const loadShortlisted = async () => {
-    setError("");
-    const res = await apiClient.get("/shortlist", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setCandidates(res.data?.results || []);
-  };
-
-  useEffect(() => {
-    loadShortlisted().catch((err) => {
-      setError(err?.response?.data?.detail || "Failed to load shortlisted candidates");
-    });
-  }, [token]);
+  const candidates = history.filter(
+    (row) => row.shortlisted || shortlistedIds.includes(Number(row.id))
+  );
 
   const handleAutoShortlist = async () => {
     setLoading(true);
@@ -36,11 +25,8 @@ function ShortlistedCandidatesPage({ token, onToggleShortlist, onShortlistChange
         min_score: thresholds.min_score === "" ? null : Number(thresholds.min_score),
         min_experience: thresholds.min_experience === "" ? null : Number(thresholds.min_experience),
       };
-      const res = await apiClient.post("/shortlist/auto", payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiClient.post("/shortlist/auto", payload);
       setMessage(`Auto-shortlisted ${res.data?.count || 0} candidate(s).`);
-      await loadShortlisted();
       await onShortlistChanged();
     } catch (err) {
       setError(err?.response?.data?.detail || "Auto-shortlist failed");
@@ -104,7 +90,7 @@ function ShortlistedCandidatesPage({ token, onToggleShortlist, onShortlistChange
             candidates.map((candidate) => (
               <tr key={candidate.id}>
                 <td>
-                  {candidate.name} <span className="shortlisted-badge">Shortlisted</span>
+                  {candidate.name || candidate.resume_name} <span className="shortlisted-badge">Shortlisted</span>
                 </td>
                 <td>{candidate.email || "N/A"}</td>
                 <td>{candidate.score}</td>
@@ -116,7 +102,7 @@ function ShortlistedCandidatesPage({ token, onToggleShortlist, onShortlistChange
                     className="secondary-btn"
                     onClick={async () => {
                       await onToggleShortlist(Number(candidate.id), false);
-                      await loadShortlisted();
+                      await onShortlistChanged();
                     }}
                   >
                     Remove

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -12,27 +12,12 @@ import {
 import { apiClient } from "./api";
 import { formatEducationList } from "../formatEducation";
 
-function ComparePage({ token }) {
-  const [history, setHistory] = useState([]);
+function ComparePage({ history = [], token }) {
   const [selectedResumes, setSelectedResumes] = useState([]);
   const [selectedJD, setSelectedJD] = useState("");
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    const loadHistory = async () => {
-      try {
-        const res = await apiClient.get("/history", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setHistory(res.data || []);
-      } catch (err) {
-        setError(err?.response?.data?.detail || "Failed to load history");
-      }
-    };
-    loadHistory();
-  }, [token]);
 
   const jdOptions = useMemo(() => {
     const unique = new Map();

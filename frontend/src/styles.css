@@ -124,6 +124,14 @@ body {
   min-width: 0;
 }
 
+.page-panel {
+  display: block;
+}
+
+.page-panel[hidden] {
+  display: none !important;
+}
+
 .card {
   background: rgba(15, 23, 42, 0.52);
   border: 1px solid rgba(255, 255, 255, 0.12);

@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "./api";
 
-function ExplainPage({ token }) {
-  const [history, setHistory] = useState([]);
+function ExplainPage({ history = [], token }) {
   const [resumeId, setResumeId] = useState("");
   const [jdId, setJdId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -10,22 +9,10 @@ function ExplainPage({ token }) {
   const [explanation, setExplanation] = useState(null);
 
   useEffect(() => {
-    const loadHistory = async () => {
-      try {
-        const res = await apiClient.get("/history", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const rows = res.data || [];
-        setHistory(rows);
-        if (rows.length > 0) {
-          setResumeId(String(rows[0].id));
-        }
-      } catch (err) {
-        setError(err?.response?.data?.detail || "Failed to load resumes.");
-      }
-    };
-    loadHistory();
-  }, [token]);
+    if (!resumeId && history.length > 0) {
+      setResumeId(String(history[0].id));
+    }
+  }, [history, resumeId]);
 
   const jdOptions = useMemo(() => {
     const byName = new Map();

@@ -12,7 +12,7 @@ const downloadActions = [
   { label: "Download With Scores", endpoint: "/download/scored", filename: "scored_resumes.csv" },
 ];
 
-function DownloadPanel({ token }) {
+function DownloadPanel({ history = [], token }) {
   const [error, setError] = useState("");
   const [loadingLabel, setLoadingLabel] = useState("");
   const [filters, setFilters] = useState({
@@ -76,10 +76,13 @@ function DownloadPanel({ token }) {
     }
   };
 
+  const hasHistory = history.length > 0;
+
   return (
     <section className="card">
       <h3>Download Panel</h3>
       <p className="muted">Export screened resumes by status, score, and format quality.</p>
+      <p className="muted">Available history items: {history.length}</p>
       <div className="filter-grid">
         <input
           type="number"
@@ -120,7 +123,7 @@ function DownloadPanel({ token }) {
           <button
             key={action.endpoint}
             type="button"
-            disabled={loadingLabel === action.label}
+            disabled={!hasHistory || loadingLabel === action.label}
             onClick={() => handleDownload({ ...action, label: action.label })}
           >
             {loadingLabel === action.label ? "Preparing..." : action.label}
@@ -128,7 +131,7 @@ function DownloadPanel({ token }) {
         ))}
         <button
           type="button"
-          disabled={loadingLabel === "Download Filtered CSV"}
+          disabled={!hasHistory || loadingLabel === "Download Filtered CSV"}
           onClick={handleFilteredDownload}
         >
           {loadingLabel === "Download Filtered CSV" ? "Preparing..." : "Download Filtered CSV"}

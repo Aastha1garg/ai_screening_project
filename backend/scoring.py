@@ -1,7 +1,6 @@
-from functools import lru_cache
 from typing import Dict
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
 
 from utils import (
     best_education_level,
@@ -15,19 +14,21 @@ from utils import (
     extract_relevant_experience_years,
     extract_skills,
     extract_total_experience_years,
+    get_sentence_model,
     match_certifications,
     skill_matching_score,
+    classify_entities,
 )
 
-
-@lru_cache(maxsize=1)
-def get_embedding_model() -> SentenceTransformer:
-    return SentenceTransformer("all-MiniLM-L6-v2")
+# Long CVs/JDs dominate encode time; trim for similarity while keeping signal.
+_SIMILARITY_MAX_CHARS = 6000
 
 
 def cosine_similarity_score(resume_text: str, jd_text: str) -> float:
-    model = get_embedding_model()
-    embeddings = model.encode([resume_text, jd_text], convert_to_tensor=True)
+    model = get_sentence_model()
+    r = (resume_text or "")[:_SIMILARITY_MAX_CHARS]
+    j = (jd_text or "")[:_SIMILARITY_MAX_CHARS]
+    embeddings = model.encode([r, j], convert_to_tensor=True)
     similarity = util.cos_sim(embeddings[0], embeddings[1]).item()
     return round(max(0.0, similarity) * 100.0, 2)
 
@@ -38,9 +39,10 @@ def education_score(resume_education: list, jd_education: list) -> tuple[float, 
     if resume_level == 0 or jd_level == 0:
         return 50.0, "unknown"
     if resume_level == jd_level:
-        return 100.0, "exact"
+        return 95.0, "exact"
     if resume_level > jd_level:
-        return 85.0, "higher"
+        # Higher qualification bonus while preserving interpretability.
+        return 100.0, "higher"
     return 40.0, "lower"
 
 
@@ -57,15 +59,19 @@ def experience_score(total_exp: float, required_exp: float) -> tuple[float, str]
     if required_exp <= 0:
         return min(100.0, round(total_exp * 15, 2)), "unknown_requirement"
     if total_exp >= required_exp:
-        return 100.0, "meets_or_exceeds"
+        bonus = min(10.0, ((total_exp - required_exp) / max(required_exp, 1.0)) * 10.0)
+        return min(100.0, round(90.0 + bonus, 2)), "meets_or_exceeds"
     if total_exp >= required_exp * 0.8:
         return 70.0, "close"
     return 35.0, "low"
 
 
 def run_resume_screening(resume_text: str, jd_text: str, template_text: str = "") -> Dict:
-    resume_skills = extract_skills(resume_text)
-    jd_skills = extract_skills(jd_text)
+    jd_entities = classify_entities(jd_text, source="jd")
+    resume_entities = classify_entities(resume_text, source="resume", jd_skills=set(jd_entities["skills"]))
+
+    jd_skills = set(jd_entities["skills"])
+    resume_skills = set(resume_entities["skills"])
 
     skill_score, skill_breakdown = skill_matching_score(resume_skills, jd_skills)
     similarity = cosine_similarity_score(resume_text, jd_text)
@@ -74,15 +80,26 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
     relevant_experience = extract_relevant_experience_years(resume_text, jd_skills)
     experience_detail = extract_experience(resume_text)
 
-    education = extract_education(resume_text)
+    education = resume_entities["education"]
     if not education:
         fallback_degree = extract_degree(resume_text)
-        education = [] if fallback_degree == "not_found" else [fallback_degree]
-    jd_education = extract_education(jd_text)
+        education = (
+            []
+            if fallback_degree == "not_found"
+            else [
+                {
+                    "degree": fallback_degree,
+                    "institution": "",
+                    "year": None,
+                    "summary": fallback_degree,
+                }
+            ]
+        )
+    jd_education = jd_entities["education"]
     edu_score, education_match = education_score(education, jd_education)
 
-    certifications = extract_certifications(resume_text)
-    required_certifications = extract_certifications(jd_text)
+    certifications = resume_entities["certifications"]
+    required_certifications = jd_entities["certifications"]
     cert_match = match_certifications(certifications, required_certifications)
     cert_score = certification_score(cert_match)
 
@@ -150,11 +167,11 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
         },
         "education": education,
         "required_education": jd_education,
-        "certifications": certifications,
-        "required_certifications": required_certifications,
-        "matched_certifications": cert_match.get("matched", []),
-        "missing_certifications": cert_match.get("missing", []),
-        "extra_certifications": cert_match.get("extra", []),
+        "certifications_all": certifications,
+        "certifications_required": required_certifications,
+        "certifications_matched": cert_match.get("matched", []),
+        "certifications_missing": cert_match.get("missing", []),
+        "certifications_extra": cert_match.get("extra", []),
         "education_match": education_match,
         "experience_match": experience_match,
         "score_breakdown": {

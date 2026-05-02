@@ -11,32 +11,41 @@ import {
 
 function AnalyticsDashboard({ rows }) {
   const experienceData = useMemo(() => {
-    return (rows || []).map((row, index) => ({
-      resumeName: row.name || `Resume ${index + 1}`,
-      shortName: `R${index + 1}`,
-      totalExperience: Number(row.totalExperience || 0),
-      relevantExperience: Number(row.relevantExperience || 0),
-    }));
+    return (rows || []).map((row, index) => {
+      const fullName = row.name || `Resume ${index + 1}`;
+      return {
+        resumeName: fullName,
+        shortName: fullName.slice(0, 10) + (fullName.length > 10 ? "..." : ""),
+        totalExperience: Number(row.totalExperience || 0),
+        relevantExperience: Number(row.relevantExperience || 0),
+      };
+    });
   }, [rows]);
 
   const certificationData = useMemo(() => {
-    return (rows || []).map((row, index) => ({
-      resumeName: row.name || `Resume ${index + 1}`,
-      shortName: `R${index + 1}`,
-      matched: (row.matchedCertifications || []).length,
-      missing: (row.missingCertifications || []).length,
-      extra: (row.extraCertifications || []).length,
-    }));
+    return (rows || []).map((row, index) => {
+      const fullName = row.name || `Resume ${index + 1}`;
+      return {
+        resumeName: fullName,
+        shortName: fullName.slice(0, 10) + (fullName.length > 10 ? "..." : ""),
+        matched: (row.matchedCertifications || []).length,
+        missing: (row.missingCertifications || []).length,
+        extra: (row.extraCertifications || []).length,
+      };
+    });
   }, [rows]);
 
   const skillData = useMemo(() => {
-    return (rows || []).map((row, index) => ({
-      resumeName: row.name || `Resume ${index + 1}`,
-      shortName: `R${index + 1}`,
-      matched: (row.matchedSkills || []).length,
-      missing: (row.missingSkills || []).length,
-      extra: (row.extraSkills || []).length,
-    }));
+    return (rows || []).map((row, index) => {
+      const fullName = row.name || `Resume ${index + 1}`;
+      return {
+        resumeName: fullName,
+        shortName: fullName.slice(0, 10) + (fullName.length > 10 ? "..." : ""),
+        matched: (row.matchedSkills || []).length,
+        missing: (row.missingSkills || []).length,
+        extra: (row.extraSkills || []).length,
+      };
+    });
   }, [rows]);
 
   return (

@@ -4,7 +4,7 @@ import io
 import json
 from datetime import datetime
 import re
-from typing import List, Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -296,11 +296,11 @@ def _history_row_to_frontend_result(row: ScreeningHistory) -> dict:
     out.setdefault("experience", out.get("experience") or {})
     out.setdefault("education", out.get("education") or [])
     out.setdefault("required_education", out.get("required_education") or [])
-    out.setdefault("certifications", out.get("certifications") or [])
-    out.setdefault("required_certifications", out.get("required_certifications") or [])
-    out.setdefault("matched_certifications", out.get("matched_certifications") or [])
-    out.setdefault("missing_certifications", out.get("missing_certifications") or [])
-    out.setdefault("extra_certifications", out.get("extra_certifications") or [])
+    out.setdefault("certifications_all", out.get("certifications_all") or out.get("certifications") or [])
+    out.setdefault("certifications_required", out.get("certifications_required") or out.get("required_certifications") or [])
+    out.setdefault("certifications_matched", out.get("certifications_matched") or out.get("matched_certifications") or [])
+    out.setdefault("certifications_missing", out.get("certifications_missing") or out.get("missing_certifications") or [])
+    out.setdefault("certifications_extra", out.get("certifications_extra") or out.get("extra_certifications") or [])
     out.setdefault("education_match", out.get("education_match") or "")
     out.setdefault("experience_match", out.get("experience_match") or "")
     out.setdefault("score_breakdown", out.get("score_breakdown") or {})

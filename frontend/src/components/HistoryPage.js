@@ -1,28 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { apiClient } from "./api";
+import React from "react";
 
-function HistoryPage({ token, shortlistedIds, onToggleShortlist }) {
-  const [history, setHistory] = useState([]);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await apiClient.get("/history", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setHistory(res.data);
-      } catch (err) {
-        setError(err?.response?.data?.detail || "Failed to load history");
-      }
-    };
-    load();
-  }, [token]);
-
+function HistoryPage({ history = [], shortlistedIds, onToggleShortlist }) {
   return (
     <section className="card">
       <h3>History</h3>
-      {error && <p className="error">{error}</p>}
       <table className="table">
         <thead>
           <tr>
