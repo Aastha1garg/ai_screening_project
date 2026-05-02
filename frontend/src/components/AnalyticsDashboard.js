@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { formatEducationList } from "../formatEducation";
 import {
   Bar,
   BarChart,
@@ -112,7 +113,7 @@ function AnalyticsDashboard({ rows }) {
                   <td>{(row.matchedSkills || []).join(", ") || "N/A"}</td>
                   <td>{(row.missingSkills || []).join(", ") || "N/A"}</td>
                   <td>{`${row.totalExperience || 0}y (relevant ${row.relevantExperience || 0}y)`}</td>
-                  <td>{(row.education || []).join(", ") || "N/A"}</td>
+                  <td>{formatEducationList(row.education)}</td>
                   <td>{(row.certifications || []).join(", ") || "N/A"}</td>
                   <td>{row.score}</td>
                 </tr>

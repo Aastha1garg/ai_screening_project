@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { apiClient } from "./api";
+import { apiClient, AUTH_TOKEN_KEY } from "./api";
 
 function AuthForm({ onAuthSuccess, initialError = "" }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -19,7 +19,9 @@ function AuthForm({ onAuthSuccess, initialError = "" }) {
     try {
       const endpoint = isLogin ? "/auth/login" : "/auth/register";
       const res = await apiClient.post(endpoint, { email, password });
-      onAuthSuccess(res.data.access_token);
+      const accessToken = res.data.access_token;
+      localStorage.setItem(AUTH_TOKEN_KEY, accessToken);
+      onAuthSuccess(accessToken);
     } catch (err) {
       setError(err?.response?.data?.detail || "Authentication failed");
     }

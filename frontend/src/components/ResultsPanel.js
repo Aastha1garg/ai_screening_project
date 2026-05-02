@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { apiClient } from "./api";
 
-function ResultsPanel({ results, token, shortlistedIds, onToggleShortlist }) {
+function ResultsPanel({ results, shortlistedIds, onToggleShortlist }) {
   const [loadingKey, setLoadingKey] = useState("");
   const [feedbackByKey, setFeedbackByKey] = useState({});
   const [expandedByKey, setExpandedByKey] = useState({});
@@ -28,7 +28,6 @@ function ResultsPanel({ results, token, shortlistedIds, onToggleShortlist }) {
           matched_skills: item.matched_skills || [],
           missing_skills: item.missing_skills || [],
         },
-        { headers: { Authorization: `Bearer ${token}` } }
       );
       const aiFeedback = res.data?.ai_feedback || {};
       setFeedbackByKey((prev) => ({ ...prev, [key]: aiFeedback }));

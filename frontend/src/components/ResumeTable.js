@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { formatEducationList } from "../formatEducation";
 import FilterPanel from "./FilterPanel";
 
 function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
@@ -248,7 +249,7 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
               <strong>Applied JD:</strong> {selectedRow.jobRole}
             </p>
             <p>
-              <strong>Education:</strong> {selectedRow.education.join(", ") || "N/A"}
+              <strong>Education:</strong> {formatEducationList(selectedRow.education)}
             </p>
             <p>
               <strong>Certifications:</strong> {selectedRow.certifications.join(", ") || "N/A"}

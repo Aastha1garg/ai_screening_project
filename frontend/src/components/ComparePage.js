@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { apiClient } from "./api";
+import { formatEducationList } from "../formatEducation";
 
 function ComparePage({ token }) {
   const [history, setHistory] = useState([]);
@@ -153,7 +154,7 @@ function ComparePage({ token }) {
                     <td>{candidate.score}</td>
                     <td>{candidate.skill_score}</td>
                     <td>{candidate.experience}</td>
-                    <td>{(candidate.education || []).join(", ") || "N/A"}</td>
+                    <td>{formatEducationList(candidate.education)}</td>
                     <td>
                       <span className={`status-pill ${candidate.status}`}>{candidate.status}</span>
                     </td>

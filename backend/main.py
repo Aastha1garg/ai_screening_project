@@ -29,6 +29,7 @@ from auth import (
 from format_checker import analyze_resume_format, detect_sections, read_upload_file
 from ai_feedback import generate_ai_feedback, generate_resume_improvement
 from scoring import run_resume_screening
+from utils import education_entries_to_strings
 
 
 class ScreeningHistory(Base):
@@ -89,8 +90,8 @@ class UploadResultItem(BaseModel):
     extra_skills: List[str] = []
     partial_matches: List[str]
     experience: dict
-    education: List[str]
-    required_education: List[str] = []
+    education: List[Dict[str, Any]]
+    required_education: List[Dict[str, Any]] = []
     certifications: List[str]
     required_certifications: List[str] = []
     matched_certifications: List[str] = []
@@ -269,6 +270,47 @@ def _extract_email_from_text(resume_text: str) -> str:
     return match.group(0) if match else ""
 
 
+def _history_row_to_frontend_result(row: ScreeningHistory) -> dict:
+    """Rebuild upload-shaped result dict from DB for dashboard hydration (user-scoped)."""
+    payload = _safe_json_loads(row.result_payload or "{}", {})
+    matched = _safe_json_loads(row.matched_skills or "[]", [])
+    missing = _safe_json_loads(row.missing_skills or "[]", [])
+
+    out = dict(payload) if isinstance(payload, dict) else {}
+    out["id"] = row.id
+    out["resume_name"] = row.resume_name
+    out["jd_name"] = row.jd_name
+    out["resume_text"] = row.resume_text or ""
+    out["jd_text"] = row.jd_text or ""
+    out["score"] = float(row.final_score or 0)
+    out["final_score"] = float(row.final_score or 0)
+    out["skill_score"] = float(row.skill_score or 0)
+    out["format_score"] = float(row.format_score or 0)
+    out["shortlisted"] = bool(row.shortlisted)
+    if isinstance(matched, list) and matched:
+        out["matched_skills"] = out.get("matched_skills") or matched
+    if isinstance(missing, list) and missing:
+        out["missing_skills"] = out.get("missing_skills") or missing
+    out.setdefault("extra_skills", out.get("extra_skills") or [])
+    out.setdefault("partial_matches", out.get("partial_matches") or [])
+    out.setdefault("experience", out.get("experience") or {})
+    out.setdefault("education", out.get("education") or [])
+    out.setdefault("required_education", out.get("required_education") or [])
+    out.setdefault("certifications", out.get("certifications") or [])
+    out.setdefault("required_certifications", out.get("required_certifications") or [])
+    out.setdefault("matched_certifications", out.get("matched_certifications") or [])
+    out.setdefault("missing_certifications", out.get("missing_certifications") or [])
+    out.setdefault("extra_certifications", out.get("extra_certifications") or [])
+    out.setdefault("education_match", out.get("education_match") or "")
+    out.setdefault("experience_match", out.get("experience_match") or "")
+    out.setdefault("score_breakdown", out.get("score_breakdown") or {})
+    out.setdefault("sentiment", out.get("sentiment") or "neutral")
+    out.setdefault("profile_label", out.get("profile_label") or "Needs Improvement")
+    if not out.get("feedback"):
+        out["feedback"] = out.get("ai_feedback") if isinstance(out.get("ai_feedback"), dict) else {}
+    return out
+
+
 def _serialize_history_row(row: ScreeningHistory) -> dict:
     try:
         payload = json.loads(row.result_payload or "{}")
@@ -371,7 +413,7 @@ def _build_filtered_csv(rows: List[dict]) -> io.StringIO:
                 row.get("score", 0),
                 row.get("skill_score", 0),
                 row.get("experience", 0),
-                ", ".join(row.get("education", [])),
+                ", ".join(education_entries_to_strings(row.get("education", []))),
                 ", ".join(row.get("matched_skills", [])),
                 ", ".join(row.get("missing_skills", [])),
                 row.get("format_score", 0),
@@ -545,6 +587,20 @@ def get_history(
         }
         for row in rows
     ]
+
+
+@app.get("/history/results")
+def get_history_results(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    """Full screening payloads for the current user (for dashboard after reload)."""
+    rows = (
+        db.query(ScreeningHistory)
+        .filter(ScreeningHistory.user_id == current_user.id)
+        .order_by(ScreeningHistory.created_at.desc())
+        .all()
+    )
+    return [_history_row_to_frontend_result(row) for row in rows]
 
 
 @app.get("/notifications", response_model=NotificationsResponse)
