@@ -7,6 +7,8 @@ function UploadForm({
   loading,
   error,
   restoreHint,
+  realtimeMode = true,
+  onToggleRealtimeMode,
   onAddResumes,
   onAddJds,
   onSetTemplate,
@@ -40,6 +42,27 @@ function UploadForm({
       <h3>Candidate Input</h3>
       <p className="muted">Upload files to run AI scoring and fit analysis.</p>
       {restoreHint ? <p className="muted">{restoreHint}</p> : null}
+      
+      {/* Real-time mode toggle */}
+      <div className="realtime-toggle">
+        <label className="toggle-label">
+          <input
+            type="checkbox"
+            checked={realtimeMode}
+            onChange={(e) => onToggleRealtimeMode?.(e.target.checked)}
+            disabled={loading}
+          />
+          <span className="toggle-text">
+            {realtimeMode ? " Real-time Scoring" : " Traditional Upload"}
+          </span>
+        </label>
+        <p className="toggle-hint">
+          {realtimeMode
+            ? "See scores update live as processing happens"
+            : "Upload all at once and get results when complete"}
+        </p>
+      </div>
+
       <form onSubmit={submit} className="stack">
         <label>
           Upload Resume(s)

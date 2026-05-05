@@ -172,8 +172,8 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
         </thead>
         <tbody>
           {displayRows.length ? (
-            displayRows.map((row) => (
-              <tr key={`${row.name}-${row.jobRole}-${row.score}`}>
+            displayRows.map((row, rowIndex) => (
+              <tr key={row.historyId ?? row.id ?? `${row.name}-${row.jobRole}-${row.score}-${rowIndex}`}>
                 <td>{row.name}</td>
                 <td>{row.score}</td>
                 <td>{row.skillScore}%</td>
@@ -181,18 +181,18 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
                 <td>{`${row.totalExperience}y / ${row.relevantExperience}y`}</td>
                 <td>
                   <div className="skill-tags">
-                    {row.matchedSkills.slice(0, 3).map((skill) => (
-                      <span key={`${row.name}-m-${skill}`} className="skill-tag match">
+                    {row.matchedSkills.slice(0, 3).map((skill, skillIdx) => (
+                      <span key={`${row.historyId ?? row.id}-m-${skill}-${skillIdx}`} className="skill-tag match">
                         {skill}
                       </span>
                     ))}
-                    {row.missingSkills.slice(0, 3).map((skill) => (
-                      <span key={`${row.name}-x-${skill}`} className="skill-tag missing">
+                    {row.missingSkills.slice(0, 3).map((skill, skillIdx) => (
+                      <span key={`${row.historyId ?? row.id}-x-${skill}-${skillIdx}`} className="skill-tag missing">
                         {skill}
                       </span>
                     ))}
-                    {row.partialMatches.slice(0, 2).map((skill) => (
-                      <span key={`${row.name}-p-${skill}`} className="skill-tag partial">
+                    {row.partialMatches.slice(0, 2).map((skill, skillIdx) => (
+                      <span key={`${row.historyId ?? row.id}-p-${skill}-${skillIdx}`} className="skill-tag partial">
                         {skill}
                       </span>
                     ))}

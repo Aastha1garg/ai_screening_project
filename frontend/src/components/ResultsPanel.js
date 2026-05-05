@@ -8,7 +8,21 @@ function ResultsPanel({ results, shortlistedIds, onToggleShortlist }) {
   const [selectedFeedback, setSelectedFeedback] = useState(null);
   const [error, setError] = useState("");
 
-  const getKey = (item) => `${item.resume_name}-${item.jd_name}`;
+const getKey = (item) =>
+  item.id || `${item.resume_name}-${item.jd_name}`;
+  const getScoreLabel = (score) => {
+    if (score >= 85) return "Excellent match";
+    if (score >= 75) return "Strong fit";
+    if (score >= 65) return "Good fit";
+    return "Needs improvement";
+  };
+
+  const getScoreClass = (score) => {
+    if (score >= 85) return "score-chip excellent";
+    if (score >= 75) return "score-chip good";
+    if (score >= 65) return "score-chip caution";
+    return "score-chip weak";
+  };
 
   const generateFeedback = async (item, forceRegenerate = false) => {
     const key = getKey(item);
@@ -53,7 +67,7 @@ function ResultsPanel({ results, shortlistedIds, onToggleShortlist }) {
       <h3>Scoring Dashboard</h3>
       {error && <p className="error">{error}</p>}
       <div className="stack">
-        {results.map((item) => (
+        {results.map((item, index) => (
           <div className="chart-box" key={getKey(item)}>
             <div className="score-row">
               <p className="score-line">{item.resume_name}</p>
@@ -65,7 +79,10 @@ function ResultsPanel({ results, shortlistedIds, onToggleShortlist }) {
               </div>
             </div>
             <p>
-              <strong>Final score:</strong> {item.score}
+              <strong>Final score:</strong>{" "}
+              <span className={getScoreClass(Number(item.score))}>
+                {item.score} – {getScoreLabel(Number(item.score))}
+              </span>
             </p>
             <div className="inline-controls">
               <button

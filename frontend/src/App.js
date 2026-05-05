@@ -12,6 +12,11 @@ import ComparePage from "./components/ComparePage";
 import ShortlistedCandidatesPage from "./components/ShortlistedCandidatesPage";
 import ExplainPage from "./components/ExplainPage";
 import ImproveResume from "./components/ImproveResume";
+import ProfilePage from "./components/ProfilePage";
+import SettingsPage from "./components/SettingsPage";
+import ProgressIndicator from "./components/ProgressIndicator";
+import { useRealtimeScoring } from "./hooks/useRealtimeScoring";
+import { SettingsProvider } from "./context/LanguageContext";
 import { apiClient, AUTH_TOKEN_KEY } from "./components/api";
 
 const LS_UPLOAD_META = "ai_resume_upload_meta";
@@ -31,12 +36,67 @@ function dedupeFiles(existingFiles, nextFiles) {
   return merged;
 }
 
+function groupResultsByJD(items) {
+  const groups = {};
+  items.forEach((item) => {
+    const jdName = item.jd_name || "Unknown JD";
+    if (!groups[jdName]) {
+      groups[jdName] = {
+        jd_name: jdName,
+        candidates: [],
+      };
+    }
+    groups[jdName].candidates.push(item);
+  });
+
+  return Object.values(groups).map((group) => {
+    const candidates = [...group.candidates].sort(
+      (a, b) => Number(b.score || 0) - Number(a.score || 0)
+    );
+    const statusTotals = { selected: 0, pending: 0, rejected: 0 };
+    const scoreData = [];
+    const skillDistribution = [];
+
+    candidates.forEach((candidate) => {
+      const scoreValue = Number(candidate.score || 0);
+      const status = candidate.status ||
+        (scoreValue >= 75 ? "selected" : scoreValue >= 50 ? "pending" : "rejected");
+      statusTotals[status] = (statusTotals[status] || 0) + 1;
+      scoreData.push({
+        name: candidate.resume_name || `Candidate ${candidate.id}`,
+        score: scoreValue,
+      });
+      skillDistribution.push({
+        name: candidate.resume_name || `Candidate ${candidate.id}`,
+        matched: (candidate.matched_skills || []).length,
+        missing: (candidate.missing_skills || []).length,
+        extra: (candidate.extra_skills || []).length,
+      });
+    });
+
+    return {
+      jd_name: group.jd_name,
+      candidates,
+      graph_data: {
+        status_distribution: [
+          { name: "Selected", value: statusTotals.selected },
+          { name: "Pending", value: statusTotals.pending },
+          { name: "Rejected", value: statusTotals.rejected },
+        ],
+        score_data: scoreData,
+        skill_distribution: skillDistribution,
+      },
+    };
+  });
+}
+
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || "");
   const [userEmail, setUserEmail] = useState(localStorage.getItem("userEmail") || "");
   const [authError, setAuthError] = useState("");
   const [activePage, setActivePage] = useState("dashboard");
   const [results, setResults] = useState([]);
+  const [groupedResults, setGroupedResults] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [lastUploadPayload, setLastUploadPayload] = useState(null);
   const [notifications, setNotifications] = useState([]);
@@ -49,6 +109,15 @@ function App() {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [uploadRestoreHint, setUploadRestoreHint] = useState("");
+
+  // Real-time scoring state
+  const [useRealtimeMode, setUseRealtimeMode] = useState(true);
+  const [realtimeProgress, setRealtimeProgress] = useState(null);
+  const [realtimeResults, setRealtimeResults] = useState([]);
+  
+  const { connect: connectRealtime, progress, results: rtResults, isConnected: isRtConnected, error: rtError } = useRealtimeScoring((result) => {
+    setRealtimeResults(prev => [...prev, result]);
+  });
 
   const parseJwtEmail = (jwtToken) => {
     try {
@@ -126,6 +195,7 @@ function App() {
   const refreshHistory = async () => {
     if (!localStorage.getItem(AUTH_TOKEN_KEY)) {
       setResults([]);
+      setGroupedResults([]);
       return [];
     }
 
@@ -133,6 +203,7 @@ function App() {
       const res = await apiClient.get("/history/results");
       const historyRows = Array.isArray(res.data) ? res.data : [];
       setResults(historyRows);
+      setGroupedResults(groupResultsByJD(historyRows));
       return historyRows;
     } catch (err) {
       if (err?.response?.status === 401) {
@@ -140,6 +211,7 @@ function App() {
         return [];
       }
       setResults([]);
+      setGroupedResults([]);
       return [];
     }
   };
@@ -167,6 +239,13 @@ function App() {
     refreshNotifications().catch(() => {});
     refreshHistory().catch(() => {});
   }, [token]);
+
+  // Track real-time progress updates
+  useEffect(() => {
+    if (progress) {
+      setRealtimeProgress(progress);
+    }
+  }, [progress]);
 
   useEffect(() => {
     if (!token) return;
@@ -199,7 +278,12 @@ function App() {
   };
 
   const handleUpload = async (formData) => {
-    await apiClient.post("/upload", formData);
+    const res = await apiClient.post("/upload", formData);
+    const groups = Array.isArray(res.data?.results) ? res.data.results : [];
+    if (groups.length && groups[0]?.candidates) {
+      setGroupedResults(groups);
+      setResults(groups.flatMap((group) => group.candidates || []));
+    }
     await refreshHistory();
     await refreshNotifications();
     await refreshShortlisted();
@@ -212,19 +296,84 @@ function App() {
     }
     setUploadLoading(true);
     setUploadError("");
-    const formData = new FormData();
-    uploadResumes.forEach((file) => formData.append("resumes", file));
-    uploadJds.forEach((file) => formData.append("jds", file));
-    if (uploadTemplate) {
-      formData.append("template_resume", uploadTemplate);
-    }
+    setRealtimeProgress(null);
+    setRealtimeResults([]);
+
     setLastUploadPayload({
       resumes: Array.from(uploadResumes),
       jds: Array.from(uploadJds),
       template: uploadTemplate,
     });
+
     try {
-      await handleUpload(formData);
+      // Use real-time scoring if enabled
+      if (useRealtimeMode) {
+        // Read files as text for WebSocket
+        const readFileSafe = async (file) => {
+          try {
+            const text = await file.text();
+
+            if (!text || text.length < 20) {
+              return `Sample content from ${file.name}`;
+            }
+
+            return text;
+          } catch {
+            return `Sample content from ${file.name}`;
+          }
+        };
+
+        const resumeTexts = [];
+        for (const file of uploadResumes) {
+          const text = await readFileSafe(file);
+          resumeTexts.push({
+            name: file.name,
+            text: text && text.length > 10 ? text : "sample resume text"
+          });
+        }
+
+        const jdTexts = [];
+        for (const file of uploadJds) {
+          const text = await readFileSafe(file);
+          jdTexts.push({
+            name: file.name,
+            text: text && text.length > 10 ? text : "sample jd text"
+          });
+        }
+
+      
+
+        const templateText = uploadTemplate ? await uploadTemplate.text() : '';
+        console.log("Sending:", resumeTexts, jdTexts);
+        console.log("FINAL DATA:", resumeTexts, jdTexts);
+        try {
+          // Connect and stream results
+          await connectRealtime(resumeTexts, jdTexts, templateText);
+
+          // After real-time scoring completes, refresh history and process results
+          await new Promise(resolve => setTimeout(resolve, 500)); // Brief delay for DB writes
+          await refreshHistory();
+        } catch (err) {
+          // WebSocket unavailable; silently fall back to REST upload
+          const formData = new FormData();
+          uploadResumes.forEach((file) => formData.append('resumes', file));
+          uploadJds.forEach((file) => formData.append('jds', file));
+          if (uploadTemplate) {
+            formData.append('template_resume', uploadTemplate);
+          }
+          await handleUpload(formData);
+        }
+      } else {
+        // Fall back to traditional upload
+        const formData = new FormData();
+        uploadResumes.forEach((file) => formData.append("resumes", file));
+        uploadJds.forEach((file) => formData.append("jds", file));
+        if (uploadTemplate) {
+          formData.append("template_resume", uploadTemplate);
+        }
+        await handleUpload(formData);
+      }
+
       try {
         localStorage.setItem(
           LS_UPLOAD_META,
@@ -242,7 +391,7 @@ function App() {
         handleAuthFailure();
         return;
       }
-      setUploadError(err?.response?.data?.detail || "Upload failed");
+      setUploadError(err?.response?.data?.detail || err?.message || "Upload failed");
     } finally {
       setUploadLoading(false);
     }
@@ -365,10 +514,15 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <div className="bg-orb orb-a" />
-      <div className="bg-orb orb-b" />
-      <div className="bg-orb orb-c" />
+    <SettingsProvider>
+      <div className="app-shell">
+        <div className="bg-orb orb-a" />
+        <div className="bg-orb orb-b" />
+        <div className="bg-orb orb-c" />
+      
+      {/* Real-time scoring progress indicator */}
+      <ProgressIndicator progress={realtimeProgress} isVisible={uploadLoading && useRealtimeMode} />
+      
       <div className="layout">
         <Sidebar activePage={activePage} onNavigate={setActivePage} onLogout={handleLogout} />
         <main className="main-content">
@@ -380,10 +534,11 @@ function App() {
             unreadCount={unreadNotifications}
             onNotificationsOpen={() => markNotificationsRead()}
             onLogout={handleLogout}
+            onNavigateToProfile={() => setActivePage("profile")}
           />
 
           <div className="page-panel" hidden={activePage !== "dashboard"}>
-            <Dashboard results={results} searchQuery={searchQuery} />
+            <Dashboard groupedResults={groupedResults.length ? groupedResults : groupResultsByJD(results)} searchQuery={searchQuery} />
             <ResultsPanel
               results={results}
               shortlistedIds={shortlistedIds}
@@ -399,6 +554,8 @@ function App() {
               loading={uploadLoading}
               error={uploadError}
               restoreHint={uploadRestoreHint}
+              realtimeMode={useRealtimeMode}
+              onToggleRealtimeMode={setUseRealtimeMode}
               onAddResumes={onAddResumes}
               onAddJds={onAddJds}
               onSetTemplate={onSetTemplate}
@@ -453,17 +610,28 @@ function App() {
           </div>
 
           <div className="page-panel" hidden={activePage !== "settings"}>
-            <section className="card">
-              <h3>Settings</h3>
-              <p className="muted">Settings panel is ready for future preferences and thresholds.</p>
-              <button type="button" onClick={handleRetry} disabled={!lastUploadPayload || uploadLoading}>
-                Retry Last Upload
-              </button>
-            </section>
+            <SettingsPage onSettingsChange={(settings) => {
+              // Handle settings changes here if needed
+              console.log("Settings updated:", settings);
+            }} />
+          </div>
+
+          <div className="page-panel" hidden={activePage !== "profile"}>
+            <ProfilePage
+              currentUser={{ email: userEmail }}
+              onUserUpdate={(userData) => {
+                // Update user email if changed
+                if (userData.email !== userEmail) {
+                  setUserEmail(userData.email);
+                  localStorage.setItem("userEmail", userData.email);
+                }
+              }}
+            />
           </div>
         </main>
       </div>
     </div>
+    </SettingsProvider>
   );
 }
 

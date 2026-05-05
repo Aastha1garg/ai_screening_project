@@ -12,6 +12,59 @@ import {
 import { apiClient } from "./api";
 import { formatEducationList } from "../formatEducation";
 
+// Custom tooltip with dark background and white text
+const CustomTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    const data = payload[0];
+    return (
+      <div
+        style={{
+          backgroundColor: "#0f172a",
+          border: "1px solid #4f46e5",
+          borderRadius: "8px",
+          padding: "10px 12px",
+          boxShadow: "0 10px 25px rgba(0, 0, 0, 0.4)",
+        }}
+      >
+        <p style={{ color: "#ffffff", margin: "0 0 4px 0", fontWeight: "600", fontSize: "13px" }}>
+          {label || data.name || ""}
+        </p>
+        <p style={{ color: "#e2e8f0", margin: 0, fontSize: "12px" }}>
+          {`${data.name}: ${data.value}${data.name.includes("experience") ? " years" : ""}`}
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
+// Custom tooltip for stacked bars
+const CustomStackedTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#0f172a",
+          border: "1px solid #4f46e5",
+          borderRadius: "8px",
+          padding: "10px 12px",
+          boxShadow: "0 10px 25px rgba(0, 0, 0, 0.4)",
+        }}
+      >
+        <p style={{ color: "#ffffff", margin: "0 0 6px 0", fontWeight: "600", fontSize: "13px" }}>
+          {label}
+        </p>
+        {payload.map((item, index) => (
+          <p key={index} style={{ color: item.color, margin: "2px 0", fontSize: "12px" }}>
+            {`${item.name}: ${item.value}`}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
+
 function ComparePage({ history = [], token }) {
   const [selectedResumes, setSelectedResumes] = useState([]);
   const [selectedJD, setSelectedJD] = useState("");
@@ -62,14 +115,39 @@ function ComparePage({ history = [], token }) {
     }
   };
 
-  const skillChartData = useMemo(
+  const getExperienceYears = (experience) => {
+    if (typeof experience === "object" && experience !== null) {
+      return Number(experience.total_years ?? experience.relevant_years ?? experience.required_years ?? 0);
+    }
+    return Number(experience || 0);
+  };
+
+  const candidatesWithExperience = useMemo(
     () =>
       candidates.map((c) => ({
+        ...c,
+        experienceYears: getExperienceYears(c.experience),
+      })),
+    [candidates]
+  );
+
+  const skillChartData = useMemo(
+    () =>
+      candidatesWithExperience.map((c) => ({
         name: c.name,
         matched: (c.matched_skills || []).length,
         missing: (c.missing_skills || []).length,
       })),
-    [candidates]
+    [candidatesWithExperience]
+  );
+
+  const experienceChartData = useMemo(
+    () =>
+      candidatesWithExperience.map((c) => ({
+        name: c.name,
+        experience: c.experienceYears,
+      })),
+    [candidatesWithExperience]
   );
 
   return (
@@ -138,7 +216,7 @@ function ComparePage({ history = [], token }) {
                     </td>
                     <td>{candidate.score}</td>
                     <td>{candidate.skill_score}</td>
-                    <td>{candidate.experience}</td>
+                    <td>{typeof candidate.experience === "object" ? `${candidate.experience.total_years ?? candidate.experience.relevant_years ?? 0}y` : candidate.experience}</td>
                     <td>{formatEducationList(candidate.education)}</td>
                     <td>
                       <span className={`status-pill ${candidate.status}`}>{candidate.status}</span>
@@ -150,41 +228,41 @@ function ComparePage({ history = [], token }) {
           </section>
           <section className="card">
             <h3>Score Comparison</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={candidates}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="score" fill="#6d4dff" />
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={candidates} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} />
+                <XAxis dataKey="name" stroke="#94a3b8" angle={-45} textAnchor="end" height={80} tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+                <YAxis stroke="#94a3b8" tick={{ fill: "#e2e8f0", fontSize: 12 }} domain={[0, 100]} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(79, 70, 229, 0.1)" }} />
+                <Legend wrapperStyle={{ paddingTop: "16px" }} />
+                <Bar dataKey="score" name="Score" fill="#6d4dff" radius={[8, 8, 0, 0]} isAnimationActive={true} />
               </BarChart>
             </ResponsiveContainer>
           </section>
           <section className="card">
             <h3>Skills Matched vs Missing</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={skillChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="matched" fill="#22c55e" />
-                <Bar dataKey="missing" fill="#ef4444" />
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={skillChartData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} />
+                <XAxis dataKey="name" stroke="#94a3b8" angle={-45} textAnchor="end" height={80} tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+                <YAxis stroke="#94a3b8" tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+                <Tooltip content={<CustomStackedTooltip />} cursor={{ fill: "rgba(79, 70, 229, 0.1)" }} />
+                <Legend wrapperStyle={{ paddingTop: "16px" }} />
+                <Bar dataKey="matched" name="Matched" fill="#22c55e" radius={[8, 8, 0, 0]} isAnimationActive={true} />
+                <Bar dataKey="missing" name="Missing" fill="#ef4444" isAnimationActive={true} />
               </BarChart>
             </ResponsiveContainer>
           </section>
           <section className="card">
             <h3>Experience Comparison</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={candidates}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="experience" fill="#00b4ff" />
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={experienceChartData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} />
+                <XAxis dataKey="name" stroke="#94a3b8" angle={-45} textAnchor="end" height={80} tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+                <YAxis stroke="#94a3b8" tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(79, 70, 229, 0.1)" }} />
+                <Legend wrapperStyle={{ paddingTop: "16px" }} />
+                <Bar dataKey="experience" name="Experience (years)" fill="#00b4ff" radius={[8, 8, 0, 0]} isAnimationActive={true} />
               </BarChart>
             </ResponsiveContainer>
           </section>

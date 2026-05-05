@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 sqlalchemy
 python-jose[cryptography]
 passlib[bcrypt]
@@ -12,3 +12,5 @@ python-docx
 requests
 spacy
 nltk
+websockets
+python-multipart

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import Charts from "./Charts";
 import AnalyticsDashboard from "./AnalyticsDashboard";
 
@@ -46,15 +46,41 @@ function normalizeRows(results) {
       sentiment: item.sentiment || "neutral",
       profileLabel: item.profile_label || "Needs Improvement",
       feedback,
-      status: inferStatus(numericScore),
+      status: item.status || inferStatus(numericScore),
     };
   });
 }
 
-function Dashboard({ results, searchQuery }) {
-  const rows = useMemo(() => normalizeRows(results || []), [results]);
+function Dashboard({ groupedResults, searchQuery }) {
+  const [activeJD, setActiveJD] = useState(groupedResults?.[0]?.jd_name || "");
+
+  const groups = useMemo(
+    () =>
+      (groupedResults || []).map((group) => ({
+        ...group,
+        candidates: normalizeRows(group.candidates || []),
+      })),
+    [groupedResults]
+  );
+
+  useEffect(() => {
+    if (!activeJD && groups.length) {
+      setActiveJD(groups[0].jd_name);
+      return;
+    }
+    if (activeJD && !groups.some((group) => group.jd_name === activeJD) && groups.length) {
+      setActiveJD(groups[0].jd_name);
+    }
+  }, [groups, activeJD]);
+
+  const selectedGroup = useMemo(
+    () => groups.find((group) => group.jd_name === activeJD) || groups[0] || { candidates: [], jd_name: "Unknown JD", graph_data: { status_distribution: [], score_data: [], skill_distribution: [] } },
+    [groups, activeJD]
+  );
+
   const filteredRows = useMemo(() => {
     const term = searchQuery.trim().toLowerCase();
+    const rows = selectedGroup.candidates || [];
     if (!term) {
       return rows;
     }
@@ -64,7 +90,8 @@ function Dashboard({ results, searchQuery }) {
         row.jobRole.toLowerCase().includes(term) ||
         row.matchedSkills.join(" ").toLowerCase().includes(term)
     );
-  }, [rows, searchQuery]);
+  }, [selectedGroup, searchQuery]);
+
   const topCandidates = useMemo(
     () => [...filteredRows].sort((a, b) => b.scoreValue - a.scoreValue).slice(0, 10),
     [filteredRows]
@@ -79,7 +106,30 @@ function Dashboard({ results, searchQuery }) {
   return (
     <div className="dashboard-content">
       <section className="card">
-        <h3>Top 10 Candidates</h3>
+        <div className="dashboard-header-row">
+          <div>
+            <h3>Job Description Results</h3>
+            <p className="muted">Showing results for: <strong>{selectedGroup.jd_name}</strong></p>
+          </div>
+          {groups.length > 1 && (
+            <div className="jd-tabs">
+              {groups.map((group) => (
+                <button
+                  key={group.jd_name}
+                  type="button"
+                  className={`tab-item ${group.jd_name === activeJD ? "active" : ""}`}
+                  onClick={() => setActiveJD(group.jd_name)}
+                >
+                  {group.jd_name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="card">
+        <h3>{selectedGroup.jd_name} — Top Candidates</h3>
         <table className="table">
           <thead>
             <tr>
@@ -93,7 +143,7 @@ function Dashboard({ results, searchQuery }) {
           <tbody>
             {topCandidates.length ? (
               topCandidates.map((candidate, index) => (
-                <tr key={`${candidate.name}-${candidate.jobRole}-${index}`}>
+                <tr key={candidate.name + "-" + candidate.scoreValue + "-" + index}>
                   <td>{index + 1}</td>
                   <td>{candidate.name}</td>
                   <td>{candidate.score}</td>
@@ -103,12 +153,13 @@ function Dashboard({ results, searchQuery }) {
               ))
             ) : (
               <tr>
-                <td colSpan="5">Upload and score resumes to view top candidates.</td>
+                <td colSpan="5">Upload and score resumes to view top candidates for this JD.</td>
               </tr>
             )}
           </tbody>
         </table>
       </section>
+
       <Charts rows={filteredRows} />
       <AnalyticsDashboard rows={filteredRows} />
     </div>

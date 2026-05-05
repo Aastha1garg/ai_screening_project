@@ -3,11 +3,40 @@ import { formatEducationList } from "../formatEducation";
 import {
   Bar,
   BarChart,
+  CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+
+// Custom tooltip with dark background and white text
+const CustomTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#0f172a",
+          border: "1px solid #4f46e5",
+          borderRadius: "8px",
+          padding: "10px 12px",
+          boxShadow: "0 10px 25px rgba(0, 0, 0, 0.4)",
+        }}
+      >
+        <p style={{ color: "#ffffff", margin: "0 0 6px 0", fontWeight: "600", fontSize: "13px" }}>
+          {label}
+        </p>
+        {payload.map((item, index) => (
+          <p key={index} style={{ color: item.color, margin: "2px 0", fontSize: "12px" }}>
+            {`${item.name}: ${item.value}${item.name.includes("Experience") ? " years" : ""}`}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
 
 function AnalyticsDashboard({ rows }) {
   const experienceData = useMemo(() => {
@@ -52,50 +81,47 @@ function AnalyticsDashboard({ rows }) {
     <div className="dashboard-content">
       <section className="card chart-card">
         <h3>Experience Section</h3>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={experienceData}>
-            <XAxis dataKey="shortName" stroke="#c7d2fe" />
-            <YAxis stroke="#c7d2fe" />
-            <Tooltip
-              formatter={(value, key) => [`${value} years`, key]}
-              labelFormatter={(_, payload) => payload?.[0]?.payload?.resumeName || ""}
-            />
-            <Bar dataKey="totalExperience" fill="#00b4ff" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="relevantExperience" fill="#22c55e" />
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={experienceData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} />
+            <XAxis dataKey="shortName" stroke="#94a3b8" angle={-45} textAnchor="end" height={80} tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+            <YAxis stroke="#94a3b8" tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(79, 70, 229, 0.1)" }} />
+            <Legend wrapperStyle={{ paddingTop: "16px" }} />
+            <Bar dataKey="totalExperience" name="Total Experience" fill="#00b4ff" radius={[8, 8, 0, 0]} isAnimationActive={true} />
+            <Bar dataKey="relevantExperience" name="Relevant Experience" fill="#22c55e" radius={[8, 8, 0, 0]} isAnimationActive={true} />
           </BarChart>
         </ResponsiveContainer>
       </section>
 
       <section className="card chart-card">
         <h3>Certification Section</h3>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={certificationData}>
-            <XAxis dataKey="shortName" stroke="#c7d2fe" />
-            <YAxis allowDecimals={false} stroke="#c7d2fe" />
-            <Tooltip
-              formatter={(value, key) => [value, key]}
-              labelFormatter={(_, payload) => payload?.[0]?.payload?.resumeName || ""}
-            />
-            <Bar dataKey="matched" stackId="certs" fill="#22c55e" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="missing" stackId="certs" fill="#f43f5e" />
-            <Bar dataKey="extra" stackId="certs" fill="#f59e0b" />
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={certificationData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} />
+            <XAxis dataKey="shortName" stroke="#94a3b8" angle={-45} textAnchor="end" height={80} tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+            <YAxis allowDecimals={false} stroke="#94a3b8" tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(79, 70, 229, 0.1)" }} />
+            <Legend wrapperStyle={{ paddingTop: "16px" }} />
+            <Bar dataKey="matched" stackId="certs" name="Matched" fill="#22c55e" radius={[8, 8, 0, 0]} isAnimationActive={true} />
+            <Bar dataKey="missing" stackId="certs" name="Missing" fill="#ef4444" isAnimationActive={true} />
+            <Bar dataKey="extra" stackId="certs" name="Extra" fill="#f59e0b" isAnimationActive={true} />
           </BarChart>
         </ResponsiveContainer>
       </section>
 
       <section className="card chart-card">
         <h3>Skill Section</h3>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={skillData}>
-            <XAxis dataKey="shortName" stroke="#c7d2fe" />
-            <YAxis allowDecimals={false} stroke="#c7d2fe" />
-            <Tooltip
-              formatter={(value, key) => [value, key]}
-              labelFormatter={(_, payload) => payload?.[0]?.payload?.resumeName || ""}
-            />
-            <Bar dataKey="matched" stackId="skills" fill="#22c55e" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="missing" stackId="skills" fill="#f43f5e" />
-            <Bar dataKey="extra" stackId="skills" fill="#f59e0b" />
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={skillData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.3} />
+            <XAxis dataKey="shortName" stroke="#94a3b8" angle={-45} textAnchor="end" height={80} tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+            <YAxis allowDecimals={false} stroke="#94a3b8" tick={{ fill: "#e2e8f0", fontSize: 12 }} />
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(79, 70, 229, 0.1)" }} />
+            <Legend wrapperStyle={{ paddingTop: "16px" }} />
+            <Bar dataKey="matched" stackId="skills" name="Matched" fill="#22c55e" radius={[8, 8, 0, 0]} isAnimationActive={true} />
+            <Bar dataKey="missing" stackId="skills" name="Missing" fill="#ef4444" isAnimationActive={true} />
+            <Bar dataKey="extra" stackId="skills" name="Extra" fill="#f59e0b" isAnimationActive={true} />
           </BarChart>
         </ResponsiveContainer>
       </section>

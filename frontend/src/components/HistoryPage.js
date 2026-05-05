@@ -1,6 +1,9 @@
 import React from "react";
+import { formatDate } from "../utils/dateFormatter";
+import { useLanguageSettings } from "../context/LanguageContext";
 
 function HistoryPage({ history = [], shortlistedIds, onToggleShortlist }) {
+  const { languageSettings } = useLanguageSettings();
   return (
     <section className="card">
       <h3>History</h3>
@@ -21,7 +24,7 @@ function HistoryPage({ history = [], shortlistedIds, onToggleShortlist }) {
               <tr key={row.id}>
                 <td>{row.resume_name}</td>
                 <td>{row.score}</td>
-                <td>{new Date(row.date).toLocaleString()}</td>
+                <td>{formatDate(row.date, languageSettings)}</td>
                 <td>
                   <span className={`status-pill ${row.status}`}>{row.status}</span>
                   {(shortlistedIds || []).includes(Number(row.id)) && (

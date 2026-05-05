@@ -1,6 +1,10 @@
+import hashlib
+import os
+import pickle
 import re
 from datetime import datetime
 from functools import lru_cache
+from threading import Lock
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 try:
@@ -224,9 +228,90 @@ def get_nlp():
     return _NLP
 
 
-@lru_cache(maxsize=1)
+_MODEL_NAME = "all-MiniLM-L6-v2"
+_MODEL: Optional[SentenceTransformer] = None
+_MODEL_LOCK = Lock()
+_MAX_EMBED_CHARS = 6000
+_JD_EMBEDDING_CACHE_FILE = os.path.join(os.path.dirname(__file__), "jd_embedding_cache.pkl")
+_JD_EMBEDDING_CACHE: Dict[str, np.ndarray] = {}
+_JD_CACHE_LOCK = Lock()
+_PERSIST_JD_CACHE = os.environ.get("PERSIST_JD_EMBEDDING_CACHE", "false").lower() in ("1", "true", "yes")
+
+
 def get_sentence_model() -> SentenceTransformer:
-    return SentenceTransformer("all-MiniLM-L6-v2")
+    global _MODEL
+    if _MODEL is None:
+        with _MODEL_LOCK:
+            if _MODEL is None:
+                _MODEL = SentenceTransformer(_MODEL_NAME)
+    return _MODEL
+
+
+def trim_text(text: str, max_chars: int = _MAX_EMBED_CHARS) -> str:
+    if text is None:
+        return ""
+    text = text.strip()
+    return text if len(text) <= max_chars else text[:max_chars]
+
+
+def _jd_text_hash(text: str) -> str:
+    trimmed = trim_text(text)
+    return hashlib.md5(trimmed.encode("utf-8")).hexdigest()
+
+
+def _load_jd_embedding_cache() -> None:
+    if not _PERSIST_JD_CACHE:
+        return
+    if not os.path.exists(_JD_EMBEDDING_CACHE_FILE):
+        return
+    try:
+        with open(_JD_EMBEDDING_CACHE_FILE, "rb") as f:
+            data = pickle.load(f)
+            if isinstance(data, dict):
+                with _JD_CACHE_LOCK:
+                    _JD_EMBEDDING_CACHE.update(data)
+    except Exception:
+        pass
+
+
+def _save_jd_embedding_cache() -> None:
+    if not _PERSIST_JD_CACHE:
+        return
+    try:
+        with _JD_CACHE_LOCK:
+            with open(_JD_EMBEDDING_CACHE_FILE, "wb") as f:
+                pickle.dump(_JD_EMBEDDING_CACHE, f)
+    except Exception:
+        pass
+
+
+@lru_cache(maxsize=4096)
+def cached_text_embedding(text: str, normalize_embeddings: bool = True) -> np.ndarray:
+    model = get_sentence_model()
+    trimmed = trim_text(text)
+    return model.encode(trimmed, normalize_embeddings=normalize_embeddings, convert_to_numpy=True)
+
+
+def get_jd_embedding(text: str) -> np.ndarray:
+    key = _jd_text_hash(text)
+    with _JD_CACHE_LOCK:
+        if key in _JD_EMBEDDING_CACHE:
+            return _JD_EMBEDDING_CACHE[key]
+    emb = cached_text_embedding(text)
+    with _JD_CACHE_LOCK:
+        _JD_EMBEDDING_CACHE[key] = emb
+    _save_jd_embedding_cache()
+    return emb
+
+
+_load_jd_embedding_cache()
+
+
+@lru_cache(maxsize=1024)
+def cached_batch_embeddings(texts: Tuple[str, ...], normalize_embeddings: bool = True) -> np.ndarray:
+    model = get_sentence_model()
+    trimmed_texts = tuple(trim_text(text) for text in texts)
+    return model.encode(list(trimmed_texts), normalize_embeddings=normalize_embeddings, convert_to_numpy=True)
 
 
 def _build_skill_alias_map(synonyms: Dict[str, List[str]]) -> Dict[str, str]:
@@ -715,19 +800,15 @@ def _embedding_cert_cluster(text_fragment: str, threshold: float = 0.72) -> Set[
     frag = text_fragment.strip()
     if len(frag) < 6:
         return set()
-    model = get_sentence_model()
-    labels = list(CERT_SYNONYMS.keys())
+    labels = tuple(CERT_SYNONYMS.keys())
     if not labels:
         return set()
     try:
-        emb_frag = model.encode(frag, normalize_embeddings=True)
-        emb_labs = model.encode(labels, normalize_embeddings=True)
-        fv = [float(x) for x in (emb_frag.flatten() if hasattr(emb_frag, "flatten") else emb_frag)]
+        emb_frag = cached_text_embedding(frag)
+        emb_labs = cached_batch_embeddings(labels)
         hits: Set[str] = set()
-        rows = emb_labs.tolist() if hasattr(emb_labs, "tolist") else emb_labs
-        for i, row in enumerate(rows):
-            rv = [float(x) for x in row]
-            s = sum(a * b for a, b in zip(rv, fv))
+        for i, row in enumerate(emb_labs.tolist()):
+            s = float(np.dot(row, emb_frag))
             if s >= threshold:
                 hits.add(labels[i])
         return hits
@@ -855,17 +936,8 @@ def skill_matching_score(
     r_list = sorted(R_raw)
     resume_to_jd: Dict[str, str] = {r: r for r in R_raw if r in J}
 
-    model = get_sentence_model()
-    emb_j = (
-        model.encode(labels_j, normalize_embeddings=True, convert_to_numpy=True)
-        if labels_j
-        else None
-    )
-    emb_all_r = (
-        model.encode(r_list, normalize_embeddings=True, convert_to_numpy=True)
-        if r_list
-        else None
-    )
+    emb_j = cached_batch_embeddings(tuple(labels_j)) if labels_j else None
+    emb_all_r = cached_batch_embeddings(tuple(r_list)) if r_list else None
     j_index = {j: i for i, j in enumerate(labels_j)}
     r_index = {r: i for i, r in enumerate(r_list)}
 

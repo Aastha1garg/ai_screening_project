@@ -2,14 +2,15 @@ import csv
 import hashlib
 import io
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import re
 from typing import Optional, List, Dict, Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Text, text
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,7 @@ from auth import (
 from format_checker import analyze_resume_format, detect_sections, read_upload_file
 from ai_feedback import generate_ai_feedback, generate_resume_improvement
 from scoring import run_resume_screening
+from realtime_scoring import stream_resume_screening, serialize_scoring_progress, ScoringProgress
 from utils import education_entries_to_strings
 
 
@@ -106,11 +108,25 @@ class UploadResultItem(BaseModel):
     shortlisted: bool = False
 
 
+class JDGraphData(BaseModel):
+    status_distribution: List[Dict[str, Any]]
+    score_data: List[Dict[str, Any]]
+    skill_distribution: List[Dict[str, Any]]
+
+
+class JDResultGroup(BaseModel):
+    jd_name: str
+    candidates: List[UploadResultItem]
+    graph_data: JDGraphData
+
+
 class UploadResponse(BaseModel):
-    results: List[UploadResultItem]
+    results: List[JDResultGroup]
 
 
 class HistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     resume_name: str
     jd_name: str
@@ -119,9 +135,6 @@ class HistoryItem(BaseModel):
     status: str
     format_score: float
     shortlisted: bool = False
-
-    class Config:
-        from_attributes = True
 
 
 class NotificationItem(BaseModel):
@@ -466,6 +479,23 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
 _ensure_history_columns()
 
 
+def _score_resume_jd_pair(
+    resume_name: str,
+    resume_text: str,
+    jd_name: str,
+    jd_text: str,
+    template_text: str,
+) -> Dict[str, Any]:
+    result = run_resume_screening(resume_text, jd_text, template_text)
+    return {
+        "resume_name": resume_name,
+        "resume_text": resume_text,
+        "jd_name": jd_name,
+        "jd_text": jd_text,
+        "result": result,
+    }
+
+
 @app.post("/upload", response_model=UploadResponse)
 async def upload_resume(
     resumes: List[UploadFile] = File(...),
@@ -489,61 +519,90 @@ async def upload_resume(
     parsed_jds = [await read_upload_file(jd_file) for jd_file in jds]
 
     raw_results: List[dict] = []
+    score_tasks = [
+        (resume_name, resume_text, jd_name, jd_text, template_text)
+        for resume_name, resume_text in parsed_resumes
+        for jd_name, jd_text in parsed_jds
+    ]
 
-    for resume_name, resume_text in parsed_resumes:
-        for jd_name, jd_text in parsed_jds:
-            result = run_resume_screening(resume_text, jd_text, template_text)
-
-            history = ScreeningHistory(
-                user_id=current_user.id,
-                resume_text=resume_text,
-                jd_text=jd_text,
-                final_score=result["final_score"],
-                resume_name=resume_name,
-                jd_name=jd_name,
-                status=_infer_status(result["final_score"]),
-                format_score=float(result["format_check"].get("format_score", 0)),
-                skill_score=float(result.get("skill_score", 0)),
-                matched_skills=json.dumps(result.get("matched_skills", [])),
-                missing_skills=json.dumps(result.get("missing_skills", [])),
-                result_payload=json.dumps(result),
-            )
-            db.add(history)
-            db.flush()
+    max_workers = min(8, len(score_tasks) or 1)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_score_resume_jd_pair, *task): task for task in score_tasks
+        }
+        for future in as_completed(futures):
+            task_result = future.result()
+            result = task_result["result"]
+            result_status = _infer_status(result["final_score"])
 
             raw_results.append(
                 {
-                    "id": history.id,
-                    "resume_name": resume_name,
-                    "jd_name": jd_name,
-                    "resume_text": resume_text,
-                    "jd_text": jd_text,
-                    "score": result["final_score"],
-                    "skill_score": result["skill_score"],
-                    "format_score": result["format_check"].get("format_score", 0),
-                    "matched_skills": result.get("matched_skills", []),
-                    "missing_skills": result.get("missing_skills", []),
-                    "extra_skills": result.get("extra_skills", []),
-                    "partial_matches": result.get("partial_matches", []),
-                    "experience": result.get("experience", {}),
-                    "education": result.get("education", []),
-                    "required_education": result.get("required_education", []),
-                    "certifications": result.get("certifications", []),
-                    "required_certifications": result.get("required_certifications", []),
-                    "matched_certifications": result.get("matched_certifications", []),
-                    "missing_certifications": result.get("missing_certifications", []),
-                    "extra_certifications": result.get("extra_certifications", []),
-                    "education_match": result.get("education_match", ""),
-                    "experience_match": result.get("experience_match", ""),
-                    "score_breakdown": result.get("score_breakdown", {}),
-                    "sentiment": result.get("sentiment", "neutral"),
-                    "profile_label": result.get("profile_label", "Needs Improvement"),
-                    "feedback": result["ai_feedback"],
-                    "shortlisted": bool(history.shortlisted),
+                    "resume_name": task_result["resume_name"],
+                    "resume_text": task_result["resume_text"],
+                    "jd_name": task_result["jd_name"],
+                    "jd_text": task_result["jd_text"],
+                    "result": result,
+                    "result_status": result_status,
                 }
             )
 
+    db_results: List[Dict[str, Any]] = []
+    for item in raw_results:
+        result = item["result"]
+        result_status = item["result_status"]
+
+        history = ScreeningHistory(
+            user_id=current_user.id,
+            resume_text=item["resume_text"],
+            jd_text=item["jd_text"],
+            final_score=result["final_score"],
+            resume_name=item["resume_name"],
+            jd_name=item["jd_name"],
+            status=result_status,
+            format_score=float(result["format_check"].get("format_score", 0)),
+            skill_score=float(result.get("skill_score", 0)),
+            matched_skills=json.dumps(result.get("matched_skills", [])),
+            missing_skills=json.dumps(result.get("missing_skills", [])),
+            result_payload=json.dumps(result),
+        )
+        db.add(history)
+        db.flush()
+
+        db_results.append(
+            {
+                "id": history.id,
+                "resume_name": item["resume_name"],
+                "jd_name": item["jd_name"],
+                "resume_text": item["resume_text"],
+                "jd_text": item["jd_text"],
+                "score": result["final_score"],
+                "skill_score": result.get("skill_score", 0),
+                "format_score": result["format_check"].get("format_score", 0),
+                "matched_skills": result.get("matched_skills", []),
+                "missing_skills": result.get("missing_skills", []),
+                "extra_skills": result.get("extra_skills", []),
+                "partial_matches": result.get("partial_matches", []),
+                "experience": result.get("experience", {}),
+                "education": result.get("education", []),
+                "required_education": result.get("required_education", []),
+                "certifications": result.get("certifications", []),
+                "required_certifications": result.get("required_certifications", []),
+                "matched_certifications": result.get("matched_certifications", []),
+                "missing_certifications": result.get("missing_certifications", []),
+                "extra_certifications": result.get("extra_certifications", []),
+                "education_match": result.get("education_match", ""),
+                "experience_match": result.get("experience_match", ""),
+                "score_breakdown": result.get("score_breakdown", {}),
+                "sentiment": result.get("sentiment", "neutral"),
+                "profile_label": result.get("profile_label", "Needs Improvement"),
+                "status": result_status,
+                "feedback": result["ai_feedback"],
+                "shortlisted": bool(history.shortlisted),
+            }
+        )
+
     db.commit()
+    raw_results = db_results
 
     # Create user-scoped notifications after scoring finishes.
     create_notification(
@@ -561,7 +620,160 @@ async def upload_resume(
     final_results = [
         UploadResultItem(rank=index + 1, **item) for index, item in enumerate(ranked)
     ]
-    return UploadResponse(results=final_results)
+
+    grouped_by_jd: Dict[str, Dict[str, Any]] = {}
+    for item in final_results:
+        jd_key = item.jd_name or "Unknown JD"
+        group = grouped_by_jd.setdefault(jd_key, {"jd_name": jd_key, "candidates": []})
+        group["candidates"].append(item.dict())
+
+    grouped_results = []
+    for group in grouped_by_jd.values():
+        candidates = group["candidates"]
+        status_counts = {"selected": 0, "pending": 0, "rejected": 0}
+        score_data = []
+        skill_distribution = []
+
+        for candidate in candidates:
+            score_value = float(candidate.get("score", 0) or 0)
+            status_counts[candidate.get("status", "rejected")] += 1
+            score_data.append(
+                {
+                    "name": candidate.get("resume_name", "Candidate"),
+                    "score": score_value,
+                }
+            )
+            skill_distribution.append(
+                {
+                    "name": candidate.get("resume_name", "Candidate"),
+                    "matched": len(candidate.get("matched_skills", []) or []),
+                    "missing": len(candidate.get("missing_skills", []) or []),
+                    "extra": len(candidate.get("extra_skills", []) or []),
+                }
+            )
+
+        grouped_results.append(
+            {
+                "jd_name": group["jd_name"],
+                "candidates": candidates,
+                "graph_data": {
+                    "status_distribution": [
+                        {"name": "Selected", "value": status_counts["selected"]},
+                        {"name": "Pending", "value": status_counts["pending"]},
+                        {"name": "Rejected", "value": status_counts["rejected"]},
+                    ],
+                    "score_data": score_data,
+                    "skill_distribution": skill_distribution,
+                },
+            }
+        )
+
+    return UploadResponse(results=grouped_results)
+
+
+@app.websocket("/ws/upload")
+async def websocket_upload(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time resume screening with streaming progress updates.
+    
+    Expected incoming message format:
+    {
+        "resumes": [{"name": "resume1.pdf", "text": "..."}, ...],
+        "jds": [{"name": "jd1.pdf", "text": "..."}, ...],
+        "template": "optional template text"
+    }
+    
+    Outgoing messages (ScoringProgress events):
+    - started: Screening started
+    - processing: Processing a resume/JD pair
+    - completed: Result for a specific pair
+    - error: Error occurred during processing
+    """
+    print("WebSocket request received")
+    await websocket.accept()
+    print("WebSocket accepted")
+    
+    try:
+        # Receive upload data with safe handling
+        try:
+            data = await websocket.receive_json()
+            print("Data received (JSON):", data)
+        except Exception as json_error:
+            print("Failed to parse JSON, trying text:", json_error)
+            try:
+                text_data = await websocket.receive_text()
+                print("Data received (text):", text_data)
+                data = json.loads(text_data)
+            except Exception as text_error:
+                print("Failed to parse text data:", text_error)
+                await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                    event="error",
+                    total_pairs=0,
+                    current_pair=0,
+                    current_resume="",
+                    current_jd="",
+                    error="Invalid data format received"
+                )))
+                await websocket.close(code=1003)
+                return
+        
+        resumes = data.get("resumes", [])
+        jds = data.get("jds", [])
+        template_text = data.get("template", "")
+        
+        if not resumes or not jds:
+            print("No resumes or JDs provided")
+            await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                event="error",
+                total_pairs=0,
+                current_pair=0,
+                current_resume="",
+                current_jd="",
+                error="At least one resume and one JD required"
+            )))
+            await websocket.close(code=1008)
+            return
+        
+        # Prepare resume and JD tuples
+        resume_tuples = [(r.get("name", f"Resume {i}"), r.get("text", "")) for i, r in enumerate(resumes)]
+        jd_tuples = [(j.get("name", f"JD {i}"), j.get("text", "")) for i, j in enumerate(jds)]
+        
+        # Callback to send progress updates via WebSocket
+        async def send_progress(progress: ScoringProgress):
+            await websocket.send_text(serialize_scoring_progress(progress))
+        
+        # Stream results
+        results = await stream_resume_screening(
+            resume_tuples,
+            jd_tuples,
+            template_text,
+            send_progress
+        )
+        
+        # Send final completion message with all results
+        await websocket.send_text(json.dumps({
+            "event": "all_completed",
+            "total_results": len(results),
+            "results": results
+        }))
+        
+    except WebSocketDisconnect:
+        print("Client disconnected from real-time scoring WebSocket")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        try:
+            await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                event="error",
+                total_pairs=0,
+                current_pair=0,
+                current_resume="",
+                current_jd="",
+                error=f"Server error: {str(e)}"
+            )))
+        except:
+            pass
+        finally:
+            await websocket.close(code=1011)
 
 
 @app.get("/history", response_model=List[HistoryItem])
@@ -1039,4 +1251,13 @@ def ai_feedback(payload: AIFeedbackRequest, current_user: User = Depends(get_cur
     )
     _ai_feedback_cache[cache_key] = feedback
     return {"ai_feedback": feedback, "cached": False}
- 
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True) 

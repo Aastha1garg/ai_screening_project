@@ -1,9 +1,11 @@
 from typing import Dict
+import re
 
-from sentence_transformers import util
+import numpy as np
 
 from utils import (
     best_education_level,
+    cached_text_embedding,
     evaluate_format,
     extract_certifications,
     extract_education,
@@ -14,10 +16,11 @@ from utils import (
     extract_relevant_experience_years,
     extract_skills,
     extract_total_experience_years,
-    get_sentence_model,
+    get_jd_embedding,
     match_certifications,
     skill_matching_score,
     classify_entities,
+    trim_text,
 )
 
 # Long CVs/JDs dominate encode time; trim for similarity while keeping signal.
@@ -25,11 +28,11 @@ _SIMILARITY_MAX_CHARS = 6000
 
 
 def cosine_similarity_score(resume_text: str, jd_text: str) -> float:
-    model = get_sentence_model()
-    r = (resume_text or "")[:_SIMILARITY_MAX_CHARS]
-    j = (jd_text or "")[:_SIMILARITY_MAX_CHARS]
-    embeddings = model.encode([r, j], convert_to_tensor=True)
-    similarity = util.cos_sim(embeddings[0], embeddings[1]).item()
+    r = trim_text(resume_text or "", _SIMILARITY_MAX_CHARS)
+    j = trim_text(jd_text or "", _SIMILARITY_MAX_CHARS)
+    emb_r = cached_text_embedding(r)
+    emb_j = get_jd_embedding(j)
+    similarity = float(np.dot(emb_r, emb_j))
     return round(max(0.0, similarity) * 100.0, 2)
 
 
@@ -46,11 +49,49 @@ def education_score(resume_education: list, jd_education: list) -> tuple[float, 
     return 40.0, "lower"
 
 
+def normalize_score_to_range(score: float, min_score: float = 60.0, max_score: float = 90.0) -> float:
+    """Normalize a primary score of 0-100 into a target display range."""
+    clamped = min(max(score, 0.0), 100.0)
+    normalized = (clamped * ((max_score - min_score) / 100.0)) + min_score
+    return round(normalized, 2)
+
+
 def certification_score(cert_match: dict) -> float:
     required = len(cert_match.get("matched", [])) + len(cert_match.get("missing", []))
     if required == 0:
         return 70.0
     return round((len(cert_match.get("matched", [])) / required) * 100.0, 2)
+
+
+def identify_critical_skills(jd_text: str, jd_skills: set) -> set:
+    if not jd_text or not jd_skills:
+        return set()
+
+    jd_lower = jd_text.lower()
+    critical_phrases = [
+        "must", "must have", "required", "require", "need", "needs", "essential",
+        "strongly preferred", "preferred", "critical", "priority", "should have",
+    ]
+    critical = set()
+    for line in re.split(r"[\n\r;]+", jd_text):
+        line_low = line.strip().lower()
+        if not line_low:
+            continue
+        if any(phrase in line_low for phrase in critical_phrases):
+            for skill in jd_skills:
+                normalized = skill.lower().strip()
+                if not normalized:
+                    continue
+                if re.search(rf"\b{re.escape(normalized)}\b", line_low):
+                    critical.add(skill)
+
+    if not critical:
+        # fallback: treat the first 20% of JD skills as critical when no explicit markers exist
+        top_count = max(1, len(jd_skills) // 5)
+        sorted_skills = sorted(jd_skills)
+        critical = set(sorted_skills[:top_count])
+
+    return critical
 
 
 def experience_score(total_exp: float, required_exp: float) -> tuple[float, str]:
@@ -123,15 +164,30 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
     result.setdefault("certification_score", 0)
     result.setdefault("format_score", 0)
 
-    final_score = round(
-        (0.6 * result["skill_score"])
-        + (0.15 * result.get("similarity_score", 0))
-        + (0.1 * result.get("experience_score", 0))
-        + (0.05 * result.get("education_score", 0))
-        + (0.05 * result.get("certification_score", 0))
+    critical_skills = identify_critical_skills(jd_text, jd_skills)
+    missing_skills = sorted(skill_breakdown.get("missing_skills", []))
+    missing_critical = [skill for skill in missing_skills if skill in critical_skills]
+    missing_noncritical = [skill for skill in missing_skills if skill not in critical_skills]
+    penalty = (len(missing_critical) * 5) + (len(missing_noncritical) * 2)
+
+    weighted_score = round(
+        (0.4 * result["skill_score"])
+        + (0.2 * result.get("similarity_score", 0))
+        + (0.15 * result.get("experience_score", 0))
+        + (0.10 * result.get("education_score", 0))
+        + (0.10 * result.get("certification_score", 0))
         + (0.05 * result.get("format_score", 0)),
         2,
     )
+    adjusted_score = max(0.0, round(weighted_score - penalty, 2))
+    final_score = normalize_score_to_range(adjusted_score)
+
+    result["combined_score"] = weighted_score
+    result["penalty"] = penalty
+    result["missing_critical_skills"] = missing_critical
+    result["missing_noncritical_skills"] = missing_noncritical
+    result["critical_skills"] = sorted(critical_skills)
+    result["score_adjusted"] = adjusted_score
     result["final_score"] = final_score
 
     entities = extract_entities_with_spacy(resume_text)
@@ -140,12 +196,22 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
     extra_skills = sorted(skill_breakdown.get("irrelevant_skills", []))
     missing_skills = sorted(skill_breakdown.get("missing_skills", []))
 
-    if final_score >= 75:
+    # Calculate skill match ratio for sentiment
+    matched_count = len(matched_skill_set)
+    missing_count = len(missing_skills)
+    total_required = matched_count + missing_count
+    
+    if total_required > 0:
+        skill_match_ratio = (matched_count / total_required) * 100
+    else:
+        skill_match_ratio = 100  # If no skills required, consider it perfect match
+    
+    if skill_match_ratio > 70:
         sentiment = "positive"
-        profile_label = "Strong Profile"
-    elif final_score >= 55:
+        profile_label = "Strong Match"
+    elif skill_match_ratio >= 40:
         sentiment = "neutral"
-        profile_label = "Needs Improvement"
+        profile_label = "Moderate Match"
     else:
         sentiment = "weak"
         profile_label = "Needs Improvement"
@@ -188,13 +254,18 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
             "edu_score": result.get("education_score", 0),
             "cert_score": result.get("certification_score", 0),
             "weights": {
-                "skill": 0.6,
-                "similarity": 0.15,
-                "experience": 0.1,
-                "education": 0.05,
-                "certification": 0.05,
+                "skill": 0.4,
+                "similarity": 0.2,
+                "experience": 0.15,
+                "education": 0.10,
+                "certification": 0.10,
                 "format": 0.05,
+                "penalty": "-5 per critical missing, -2 per normal missing",
             },
+            "formula": "final_score = normalize(weighted_score - penalties, 60-90)",
+            "penalty": result.get("penalty", 0),
+            "missing_critical_skills": result.get("missing_critical_skills", []),
+            "missing_noncritical_skills": result.get("missing_noncritical_skills", []),
         },
         "entities": entities,
         "sentiment": sentiment,

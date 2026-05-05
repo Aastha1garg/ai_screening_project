@@ -87,35 +87,48 @@ function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggle
         </thead>
         <tbody>
           {candidates.length ? (
-            candidates.map((candidate) => (
-              <tr key={candidate.id}>
-                <td>
-                  {candidate.name || candidate.resume_name} <span className="shortlisted-badge">Shortlisted</span>
-                </td>
-                <td>{candidate.email || "N/A"}</td>
-                <td>{candidate.score}</td>
-                <td>{candidate.skill_score}</td>
-                <td>{candidate.experience}</td>
-                <td>
-                  <button
-                    type="button"
-                    className="secondary-btn"
-                    onClick={async () => {
-                      await onToggleShortlist(Number(candidate.id), false);
-                      await onShortlistChanged();
-                    }}
-                  >
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))
+            candidates.map((candidate) => {
+              const experienceValue = candidate.experience;
+
+              const experienceText =
+                typeof experienceValue === "object"
+                  ? `${experienceValue?.total_years ?? experienceValue?.relevant_years ?? 0}y`
+                  : experienceValue;
+
+              return (
+                <tr key={candidate.id}>
+                  <td>
+                    {candidate.name || candidate.resume_name}{" "}
+                    <span className="shortlisted-badge">Shortlisted</span>
+                  </td>
+
+                  <td>{candidate.email || "N/A"}</td>
+                  <td>{candidate.score}</td>
+                  <td>{candidate.skill_score}</td>
+
+                  <td>{experienceText}</td>
+
+                  <td>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={async () => {
+                        await onToggleShortlist(Number(candidate.id), false);
+                        await onShortlistChanged();
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              );
+            })
           ) : (
             <tr>
               <td colSpan="6">No shortlisted candidates yet.</td>
             </tr>
           )}
-        </tbody>
+       </tbody>
       </table>
     </section>
   );
