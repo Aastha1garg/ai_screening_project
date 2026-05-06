@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "./api";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 function ExplainPage({ history = [], token }) {
   const [resumeId, setResumeId] = useState("");
@@ -42,7 +43,7 @@ function ExplainPage({ history = [], token }) {
       );
       setExplanation(res.data);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Failed to generate explanation.");
+      setError(formatErrorForDisplay(err?.response?.data?.detail, "Failed to generate explanation."));
     } finally {
       setLoading(false);
     }
@@ -87,7 +88,7 @@ function ExplainPage({ history = [], token }) {
             {loading ? "Analyzing..." : "Explain Score"}
           </button>
         </div>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{formatErrorForDisplay(error)}</p>}
       </section>
 
       {explanation && (

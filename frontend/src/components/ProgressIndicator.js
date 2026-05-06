@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import '../styles/ProgressIndicator.css';
+import { formatErrorForDisplay } from '../utils/errorHandler';
 
 function ProgressIndicator({ progress, isVisible = true }) {
   const [animatedPercent, setAnimatedPercent] = useState(0);
@@ -22,7 +23,7 @@ function ProgressIndicator({ progress, isVisible = true }) {
     'started': 'Starting scoring process...',
     'processing': `Processing ${progress.current_resume} against ${progress.current_jd}`,
     'completed': `Completed: ${progress.current_resume} vs ${progress.current_jd}`,
-    'error': `Error: ${progress.error || 'Unknown error'}`,
+    'error': `Error: ${formatErrorForDisplay(progress.error, 'Unknown error')}`,
     'all_completed': 'All scoring completed!'
   };
 
@@ -74,7 +75,7 @@ function ProgressIndicator({ progress, isVisible = true }) {
 
         {progress.event === 'error' && (
           <div className="error-message">
-            <strong>Error:</strong> {progress.error}
+            <strong>Error:</strong> {formatErrorForDisplay(progress.error, 'Unknown error')}
           </div>
         )}
 

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { apiClient } from "./api";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 function ResultsPanel({ results, shortlistedIds, onToggleShortlist }) {
   const { t } = useTranslation();
@@ -49,7 +50,7 @@ const getKey = (item) =>
       setFeedbackByKey((prev) => ({ ...prev, [key]: aiFeedback }));
       setSelectedFeedback({ key, item, feedback: aiFeedback });
     } catch (err) {
-      setError(err?.response?.data?.detail || t("results.feedbackFailed"));
+      setError(formatErrorForDisplay(err?.response?.data?.detail, t("results.feedbackFailed")));
     } finally {
       setLoadingKey("");
     }
@@ -67,7 +68,7 @@ const getKey = (item) =>
   return (
     <section className="card">
       <h3>{t("results.title")}</h3>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error">{formatErrorForDisplay(error)}</p>}
       <div className="stack">
         {results.map((item, index) => (
           <div className="chart-box" key={getKey(item)}>

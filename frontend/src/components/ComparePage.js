@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { apiClient } from "./api";
 import { formatEducationList } from "../formatEducation";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 // Custom tooltip with dark background and white text
 const CustomTooltip = ({ active, payload, label }) => {
@@ -109,7 +110,7 @@ function ComparePage({ history = [], token }) {
       );
       setCandidates(res.data?.candidates || []);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Comparison failed.");
+      setError(formatErrorForDisplay(err?.response?.data?.detail, "Comparison failed."));
     } finally {
       setLoading(false);
     }
@@ -186,7 +187,7 @@ function ComparePage({ history = [], token }) {
             </button>
           </div>
         </div>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{formatErrorForDisplay(error)}</p>}
       </section>
 
       {!!candidates.length && (

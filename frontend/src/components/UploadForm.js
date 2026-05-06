@@ -1,5 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 function UploadForm({
   resumes,
@@ -131,7 +132,7 @@ function UploadForm({
           )}
         </button>
       </form>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error">{formatErrorForDisplay(error)}</p>}
     </section>
   );
 }

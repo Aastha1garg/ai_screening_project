@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiClient, AUTH_TOKEN_KEY } from "./api";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 function AuthForm({ onAuthSuccess, initialError = "" }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -23,7 +24,7 @@ function AuthForm({ onAuthSuccess, initialError = "" }) {
       localStorage.setItem(AUTH_TOKEN_KEY, accessToken);
       onAuthSuccess(accessToken);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Authentication failed");
+      setError(formatErrorForDisplay(err?.response?.data?.detail, "Authentication failed"));
     }
   };
 
@@ -48,7 +49,7 @@ function AuthForm({ onAuthSuccess, initialError = "" }) {
         />
         <button type="submit">{isLogin ? "Login" : "Create Account"}</button>
       </form>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error">{formatErrorForDisplay(error)}</p>}
       <p className="toggle-auth">
         {isLogin ? "No account?" : "Already registered?"}
         <button type="button" onClick={() => setIsLogin((prev) => !prev)}>

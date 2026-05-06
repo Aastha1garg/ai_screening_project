@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { apiClient } from "./api";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggleShortlist, onShortlistChanged }) {
   const [thresholds, setThresholds] = useState({
@@ -29,7 +30,7 @@ function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggle
       setMessage(`Auto-shortlisted ${res.data?.count || 0} candidate(s).`);
       await onShortlistChanged();
     } catch (err) {
-      setError(err?.response?.data?.detail || "Auto-shortlist failed");
+      setError(formatErrorForDisplay(err?.response?.data?.detail, "Auto-shortlist failed"));
     } finally {
       setLoading(false);
     }
@@ -71,8 +72,8 @@ function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggle
         </button>
       </div>
 
-      {message && <p>{message}</p>}
-      {error && <p className="error">{error}</p>}
+      {message && <p>{formatErrorForDisplay(message)}</p>}
+      {error && <p className="error">{formatErrorForDisplay(error)}</p>}
 
       <table className="table">
         <thead>

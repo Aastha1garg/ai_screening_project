@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "./api";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 function ImproveResume({ history = [], token }) {
   const [resumeId, setResumeId] = useState("");
@@ -42,7 +43,7 @@ function ImproveResume({ history = [], token }) {
       );
       setResult(res.data || null);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Failed to improve resume.");
+      setError(formatErrorForDisplay(err?.response?.data?.detail, "Failed to improve resume."));
     } finally {
       setLoading(false);
     }
@@ -74,7 +75,7 @@ function ImproveResume({ history = [], token }) {
             {loading ? "Improving..." : "Improve Resume"}
           </button>
         </div>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{formatErrorForDisplay(error)}</p>}
       </section>
 
       {result && (

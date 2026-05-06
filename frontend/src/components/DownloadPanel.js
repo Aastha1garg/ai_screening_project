@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { apiClient } from "./api";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 const downloadActions = [
   { label: "Download All CSV", endpoint: "/download/all", filename: "all_resumes.csv" },
@@ -40,7 +41,7 @@ function DownloadPanel({ history = [], token }) {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Failed to download CSV.");
+      setError(formatErrorForDisplay(err?.response?.data?.detail, "Failed to download CSV."));
     } finally {
       setLoadingLabel("");
     }
@@ -70,7 +71,7 @@ function DownloadPanel({ history = [], token }) {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Failed to download filtered CSV.");
+      setError(formatErrorForDisplay(err?.response?.data?.detail, "Failed to download filtered CSV."));
     } finally {
       setLoadingLabel("");
     }
@@ -137,7 +138,7 @@ function DownloadPanel({ history = [], token }) {
           {loadingLabel === "Download Filtered CSV" ? "Preparing..." : "Download Filtered CSV"}
         </button>
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error">{formatErrorForDisplay(error)}</p>}
     </section>
   );
 }

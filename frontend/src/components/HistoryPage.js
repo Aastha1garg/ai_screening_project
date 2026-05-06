@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { formatDate } from "../utils/dateFormatter";
 import { useLanguageSettings } from "../context/LanguageContext";
+import { formatErrorForDisplay } from "../utils/errorHandler";
 
 function HistoryPage({ history = [], shortlistedIds, onToggleShortlist }) {
   const { t } = useTranslation();
