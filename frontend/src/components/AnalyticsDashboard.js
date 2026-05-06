@@ -54,12 +54,27 @@ function AnalyticsDashboard({ rows }) {
   const certificationData = useMemo(() => {
     return (rows || []).map((row, index) => {
       const fullName = row.name || `Resume ${index + 1}`;
+      const matchedCerts = (row.matchedCertifications || []).length;
+      const missingCerts = (row.missingCertifications || []).length;
+      const extraCerts = (row.extraCertifications || []).length;
+      
+      // Debug logging
+      console.log(`[AnalyticsDashboard] Cert data for ${fullName}:`, {
+        matched: matchedCerts,
+        missing: missingCerts,
+        extra: extraCerts,
+        certifications: row.certifications,
+        matchedCertifications: row.matchedCertifications,
+        missingCertifications: row.missingCertifications,
+        extraCertifications: row.extraCertifications,
+      });
+      
       return {
         resumeName: fullName,
         shortName: fullName.slice(0, 10) + (fullName.length > 10 ? "..." : ""),
-        matched: (row.matchedCertifications || []).length,
-        missing: (row.missingCertifications || []).length,
-        extra: (row.extraCertifications || []).length,
+        matched: matchedCerts,
+        missing: missingCerts,
+        extra: extraCerts,
       };
     });
   }, [rows]);

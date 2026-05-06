@@ -339,12 +339,14 @@ function SettingsPage({ onSettingsChange }) {
             value={i18n.language}
             onChange={(e) => {
               i18n.changeLanguage(e.target.value);
+              localStorage.setItem("language", e.target.value);
               setShowSaved(true);
               setTimeout(() => setShowSaved(false), 2000);
             }}
           >
             <option value="en">English</option>
             <option value="kn">ಕನ್ನಡ (Kannada)</option>
+            <option value="hi">हिन्दी (Hindi)</option>
           </select>
         </div>
 

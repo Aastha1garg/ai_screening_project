@@ -126,18 +126,43 @@ const getKey = (item) =>
             </div>
             {!!feedbackByKey[getKey(item)] && expandedByKey[getKey(item)] && (
               <div className="feedback-preview">
-                <p className="feedback-green">
-                  <strong>{t("results.strengths")}</strong>: {(feedbackByKey[getKey(item)].strengths || []).join(" | ")}
-                </p>
-                <p className="feedback-red">
-                  <strong>{t("results.weaknesses")}</strong>: {(feedbackByKey[getKey(item)].weaknesses || []).join(" | ")}
-                </p>
-                <p className="feedback-yellow">
-                  <strong>{t("results.missingSkills")}</strong>: {(feedbackByKey[getKey(item)].missing_skills || []).join(" | ")}
-                </p>
-                <p className="feedback-blue">
-                  <strong>{t("results.suggestions")}</strong>: {(feedbackByKey[getKey(item)].suggestions || []).join(" | ")}
-                </p>
+                {(() => {
+                  const feedback = feedbackByKey[getKey(item)];
+                  const strengths = feedback?.strengths || [];
+                  const weaknesses = feedback?.weaknesses || [];
+                  const missing_skills = feedback?.missing_skills || [];
+                  const suggestions = feedback?.suggestions || [];
+
+                  const hasStrengths = Array.isArray(strengths) ? strengths.length > 0 : Boolean(strengths);
+                  const hasWeaknesses = Array.isArray(weaknesses) ? weaknesses.length > 0 : Boolean(weaknesses);
+                  const hasMissingSkills = Array.isArray(missing_skills) ? missing_skills.length > 0 : Boolean(missing_skills);
+                  const hasSuggestions = Array.isArray(suggestions) ? suggestions.length > 0 : Boolean(suggestions);
+
+                  return (
+                    <>
+                      {hasStrengths && (
+                        <p className="feedback-green">
+                          <strong>{t("results.strengths")}</strong>: {Array.isArray(strengths) ? strengths.join(" | ") : strengths}
+                        </p>
+                      )}
+                      {hasWeaknesses && (
+                        <p className="feedback-red">
+                          <strong>{t("results.weaknesses")}</strong>: {Array.isArray(weaknesses) ? weaknesses.join(" | ") : weaknesses}
+                        </p>
+                      )}
+                      {hasMissingSkills && (
+                        <p className="feedback-yellow">
+                          <strong>{t("results.missingSkills")}</strong>: {Array.isArray(missing_skills) ? missing_skills.join(" | ") : missing_skills}
+                        </p>
+                      )}
+                      {hasSuggestions && (
+                        <p className="feedback-blue">
+                          <strong>{t("results.suggestions")}</strong>: {Array.isArray(suggestions) ? suggestions.join(" | ") : suggestions}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -151,18 +176,43 @@ const getKey = (item) =>
               {selectedFeedback.item.resume_name} - {selectedFeedback.item.jd_name}
             </p>
             <div className="feedback-preview">
-              <p className="feedback-green">
-                <strong>{t("results.strengths")}</strong>: {(selectedFeedback.feedback?.strengths || []).join(" | ")}
-              </p>
-              <p className="feedback-red">
-                <strong>{t("results.weaknesses")}</strong>: {(selectedFeedback.feedback?.weaknesses || []).join(" | ")}
-              </p>
-              <p className="feedback-yellow">
-                <strong>{t("results.missingSkills")}</strong>: {(selectedFeedback.feedback?.missing_skills || []).join(" | ")}
-              </p>
-              <p className="feedback-blue">
-                <strong>{t("results.suggestions")}</strong>: {(selectedFeedback.feedback?.suggestions || []).join(" | ")}
-              </p>
+              {(() => {
+                const feedback = selectedFeedback.feedback;
+                const strengths = feedback?.strengths || [];
+                const weaknesses = feedback?.weaknesses || [];
+                const missing_skills = feedback?.missing_skills || [];
+                const suggestions = feedback?.suggestions || [];
+
+                const hasStrengths = Array.isArray(strengths) ? strengths.length > 0 : Boolean(strengths);
+                const hasWeaknesses = Array.isArray(weaknesses) ? weaknesses.length > 0 : Boolean(weaknesses);
+                const hasMissingSkills = Array.isArray(missing_skills) ? missing_skills.length > 0 : Boolean(missing_skills);
+                const hasSuggestions = Array.isArray(suggestions) ? suggestions.length > 0 : Boolean(suggestions);
+
+                return (
+                  <>
+                    {hasStrengths && (
+                      <p className="feedback-green">
+                        <strong>{t("results.strengths")}</strong>: {Array.isArray(strengths) ? strengths.join(" | ") : strengths}
+                      </p>
+                    )}
+                    {hasWeaknesses && (
+                      <p className="feedback-red">
+                        <strong>{t("results.weaknesses")}</strong>: {Array.isArray(weaknesses) ? weaknesses.join(" | ") : weaknesses}
+                      </p>
+                    )}
+                    {hasMissingSkills && (
+                      <p className="feedback-yellow">
+                        <strong>{t("results.missingSkills")}</strong>: {Array.isArray(missing_skills) ? missing_skills.join(" | ") : missing_skills}
+                      </p>
+                    )}
+                    {hasSuggestions && (
+                      <p className="feedback-blue">
+                        <strong>{t("results.suggestions")}</strong>: {Array.isArray(suggestions) ? suggestions.join(" | ") : suggestions}
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
             <div className="inline-controls">
               <button

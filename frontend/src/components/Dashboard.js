@@ -20,6 +20,14 @@ function normalizeRows(results) {
   return results.map((item) => {
     const numericScore = Number(item.score) || 0;
     const feedback = item.feedback || {};
+    
+    // Safely extract certifications from various backend formats
+    const certifications = item.certifications_all || item.certifications || [];
+    const requiredCertifications = item.certifications_required || item.required_certifications || [];
+    const matchedCertifications = item.certifications_matched || item.matched_certifications || [];
+    const missingCertifications = item.certifications_missing || item.missing_certifications || [];
+    const extraCertifications = item.certifications_extra || item.extra_certifications || [];
+    
     return {
       name: item.resume_name || "Unknown Candidate",
       jobRole: item.jd_name || "General Role",
@@ -36,11 +44,11 @@ function normalizeRows(results) {
       requiredExperience: Number(item.experience?.required_years || 0),
       education: item.education || [],
       requiredEducation: item.required_education || [],
-      certifications: item.certifications || [],
-      requiredCertifications: item.required_certifications || [],
-      matchedCertifications: item.matched_certifications || [],
-      missingCertifications: item.missing_certifications || [],
-      extraCertifications: item.extra_certifications || [],
+      certifications: certifications,
+      requiredCertifications: requiredCertifications,
+      matchedCertifications: matchedCertifications,
+      missingCertifications: missingCertifications,
+      extraCertifications: extraCertifications,
       educationMatch: item.education_match || "",
       experienceMatch: item.experience_match || "",
       scoreBreakdown: item.score_breakdown || {},

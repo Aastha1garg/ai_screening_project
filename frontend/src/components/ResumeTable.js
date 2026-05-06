@@ -252,23 +252,47 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
               <strong>Education:</strong> {formatEducationList(selectedRow.education)}
             </p>
             <p>
-              <strong>Certifications:</strong> {selectedRow.certifications.join(", ") || "N/A"}
+              <strong>Certifications:</strong> {(selectedRow.certifications || []).join(", ") || "N/A"}
             </p>
             <p>
-              <strong>Matched Skills:</strong> {selectedRow.matchedSkills.join(", ") || "N/A"}
+              <strong>Matched Skills:</strong> {(selectedRow.matchedSkills || []).join(", ") || "N/A"}
             </p>
             <p>
-              <strong>Missing Skills:</strong> {selectedRow.missingSkills.join(", ") || "N/A"}
+              <strong>Missing Skills:</strong> {(selectedRow.missingSkills || []).join(", ") || "N/A"}
             </p>
-            <p>
-              <strong>AI Strengths:</strong> {(selectedRow.feedback?.strengths || []).join(" | ")}
-            </p>
-            <p>
-              <strong>AI Weaknesses:</strong> {(selectedRow.feedback?.weaknesses || []).join(" | ")}
-            </p>
-            <p>
-              <strong>AI Suggestions:</strong> {(selectedRow.feedback?.suggestions || []).join(" | ")}
-            </p>
+
+            {/* AI Feedback Section - Only show if there's content */}
+            {(() => {
+              const strengths = selectedRow.feedback?.strengths || [];
+              const weaknesses = selectedRow.feedback?.weaknesses || [];
+              const suggestions = selectedRow.feedback?.suggestions || [];
+
+              const hasStrengths = Array.isArray(strengths) ? strengths.length > 0 : Boolean(strengths);
+              const hasWeaknesses = Array.isArray(weaknesses) ? weaknesses.length > 0 : Boolean(weaknesses);
+              const hasSuggestions = Array.isArray(suggestions) ? suggestions.length > 0 : Boolean(suggestions);
+              const hasAIData = hasStrengths || hasWeaknesses || hasSuggestions;
+
+              return hasAIData ? (
+                <div className="ai-feedback-section">
+                  {hasStrengths && (
+                    <p>
+                      <strong>AI Strengths:</strong> {Array.isArray(strengths) ? strengths.join(" | ") : strengths}
+                    </p>
+                  )}
+                  {hasWeaknesses && (
+                    <p>
+                      <strong>AI Weaknesses:</strong> {Array.isArray(weaknesses) ? weaknesses.join(" | ") : weaknesses}
+                    </p>
+                  )}
+                  {hasSuggestions && (
+                    <p>
+                      <strong>AI Suggestions:</strong> {Array.isArray(suggestions) ? suggestions.join(" | ") : suggestions}
+                    </p>
+                  )}
+                </div>
+              ) : null;
+            })()}
+
             <button type="button" onClick={() => setSelectedRow(null)}>
               Close
             </button>

@@ -177,9 +177,11 @@ class ResumeFilterPayload(BaseModel):
 
 
 class AutoShortlistPayload(BaseModel):
-    min_skill_match: Optional[float] = None
-    min_score: Optional[float] = None
-    min_experience: Optional[float] = None
+    min_skill_match: Optional[int] = None
+    min_score: Optional[int] = None
+    min_experience: Optional[int] = None
+    
+    model_config = ConfigDict(str_strip_whitespace=True)
 
 
 class ComparePayload(BaseModel):
@@ -342,6 +344,14 @@ def _serialize_history_row(row: ScreeningHistory) -> dict:
 
     experience = payload.get("experience", {})
     education = payload.get("education", [])
+    
+    # Extract certifications from payload
+    certifications_all = payload.get("certifications_all", payload.get("certifications", []))
+    certifications_required = payload.get("certifications_required", payload.get("required_certifications", []))
+    certifications_matched = payload.get("certifications_matched", payload.get("matched_certifications", []))
+    certifications_missing = payload.get("certifications_missing", payload.get("missing_certifications", []))
+    certifications_extra = payload.get("certifications_extra", payload.get("extra_certifications", []))
+    
     return {
         "id": row.id,
         "name": row.resume_name,
@@ -358,6 +368,11 @@ def _serialize_history_row(row: ScreeningHistory) -> dict:
         "education": education,
         "matched_skills": matched,
         "missing_skills": missing,
+        "certifications_all": certifications_all,
+        "certifications_required": certifications_required,
+        "certifications_matched": certifications_matched,
+        "certifications_missing": certifications_missing,
+        "certifications_extra": certifications_extra,
         "date": row.created_at.isoformat(),
     }
 
