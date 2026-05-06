@@ -10,6 +10,18 @@
     "profile": "Profile",
     "home": "Home"
   },
+  "sidebar": {
+  "dashboard": "Dashboard",
+  "upload": "Upload",
+  "parsedResumes": "Parsed Resumes",
+  "history": "History",
+  "shortlistedCandidates": "Shortlisted Candidates",
+  "compare": "Compare",
+  "explainAI": "Explain AI",
+  "improveResume": "Improve Resume",
+  "download": "Download",
+  "settings": "Settings"
+  },
   "navbar": {
     "searchPlaceholder": "Search candidates, roles, skills...",
     "notifications": "Notifications",
@@ -106,12 +118,29 @@
     "shortlisted": "Shortlisted",
     "noResults": "No screening results yet"
   },
-  "compare": {
-    "title": "Compare Candidates",
-    "selectCandidates": "Select candidates to compare",
-    "candidate": "Candidate",
-    "score": "Score",
-    "noSelection": "Please select candidates to compare"
+  "results": {
+    "title": "AI Insights",
+    "emptyDescription": "Upload files to view screening analytics and AI feedback.",
+    "excellentMatch": "Excellent match",
+    "strongFit": "Strong fit",
+    "goodFit": "Good fit",
+    "needsImprovement": "Needs improvement",
+    "shortlisted": "Shortlisted",
+    "finalScore": "Final score:",
+    "generating": "Generating...",
+    "generateFeedback": "Generate AI Feedback",
+    "regenerateFeedback": "Regenerate Feedback",
+    "removeShortlist": "Remove Shortlist",
+    "shortlist": "Shortlist",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "strengths": "Strengths",
+    "weaknesses": "Weaknesses",
+    "missingSkills": "Missing Skills",
+    "suggestions": "Suggestions",
+    "aiFeedbackTitle": "AI Resume Feedback",
+    "feedbackFailed": "Failed to generate AI feedback.",
+    "close": "Close"
   },
   "upload": {
     "title": "Upload Resume",
@@ -119,7 +148,16 @@
     "uploadButton": "Upload Resume",
     "processing": "Processing...",
     "success": "Upload successful!",
-    "error": "Upload failed. Please try again."
+    "error": "Upload failed. Please try again.",
+    "realTimeScoring": "Real-time Scoring",
+    "traditionalUpload": "Traditional Upload",
+    "realTimeHint": "See scores update live as processing happens",
+    "traditionalHint": "Upload all at once and get results when complete",
+    "uploadResumes": "Upload Resume(s)",
+    "uploadJDs": "Upload Job Description(s)",
+    "templateResume": "Optional Template Resume",
+    "uploading": "Uploading...",
+    "uploadAnalyze": "Upload & Analyze"
   },
   "buttons": {
     "upload": "Upload",
@@ -128,6 +166,14 @@
     "reject": "Reject",
     "view": "View",
     "compare": "Compare",
-    "filter": "Filter"
+    "filter": "Filter",
+    "delete": "Remove"
+  },
+  "compare": {
+    "title": "Compare Candidates",
+    "selectCandidates": "Select candidates to compare",
+    "candidate": "Candidate",
+    "score": "Score",
+    "noSelection": "Please select candidates to compare"
   }
 }

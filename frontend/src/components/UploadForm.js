@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 function UploadForm({
   resumes,
@@ -16,6 +17,7 @@ function UploadForm({
   onRemoveJD,
   onSubmit,
 }) {
+  const { t } = useTranslation();
   const handleResumeUpload = (e) => {
     const selected = Array.from(e.target.files || []);
     onAddResumes(selected);
@@ -39,8 +41,8 @@ function UploadForm({
 
   return (
     <section className="card">
-      <h3>Candidate Input</h3>
-      <p className="muted">Upload files to run AI scoring and fit analysis.</p>
+      <h3>{t("upload.title")}</h3>
+      <p className="muted">{t("upload.description")}</p>
       {restoreHint ? <p className="muted">{restoreHint}</p> : null}
       
       {/* Real-time mode toggle */}
@@ -53,19 +55,19 @@ function UploadForm({
             disabled={loading}
           />
           <span className="toggle-text">
-            {realtimeMode ? " Real-time Scoring" : " Traditional Upload"}
+            {realtimeMode ? ` ${t("upload.realTimeScoring")}` : ` ${t("upload.traditionalUpload")}`}
           </span>
         </label>
         <p className="toggle-hint">
           {realtimeMode
-            ? "See scores update live as processing happens"
-            : "Upload all at once and get results when complete"}
+            ? t("upload.realTimeHint")
+            : t("upload.traditionalHint")}
         </p>
       </div>
 
       <form onSubmit={submit} className="stack">
         <label>
-          Upload Resume(s)
+          {t("upload.uploadResumes")}
           <input
             type="file"
             onChange={handleResumeUpload}
@@ -79,7 +81,7 @@ function UploadForm({
               <div key={`${file.name}-${file.size}-${file.lastModified}`} className="inline-controls">
                 <span className="muted">{file.name}</span>
                 <button type="button" className="secondary-btn" onClick={() => onRemoveResume(index)}>
-                  Remove
+                  {t("buttons.delete")}
                 </button>
               </div>
             ))}
@@ -87,7 +89,7 @@ function UploadForm({
         )}
 
         <label>
-          Upload Job Description(s)
+          {t("upload.uploadJDs")}
           <input
             type="file"
             onChange={handleJDUpload}
@@ -101,7 +103,7 @@ function UploadForm({
               <div key={`${file.name}-${file.size}-${file.lastModified}`} className="inline-controls">
                 <span className="muted">{file.name}</span>
                 <button type="button" className="secondary-btn" onClick={() => onRemoveJD(index)}>
-                  Remove
+                  {t("buttons.delete")}
                 </button>
               </div>
             ))}
@@ -109,7 +111,7 @@ function UploadForm({
         )}
 
         <label>
-          Optional Template Resume
+          {t("upload.templateResume")}
           <input
             type="file"
             onChange={handleTemplateUpload}
@@ -122,10 +124,10 @@ function UploadForm({
           {loading ? (
             <span className="button-loading">
               <span className="spinner" />
-              Uploading...
+              {t("upload.uploading")}
             </span>
           ) : (
-            "Upload & Analyze"
+            t("upload.uploadAnalyze")
           )}
         </button>
       </form>

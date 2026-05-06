@@ -1,7 +1,9 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { apiClient } from "./api";
 
 function ResultsPanel({ results, shortlistedIds, onToggleShortlist }) {
+  const { t } = useTranslation();
   const [loadingKey, setLoadingKey] = useState("");
   const [feedbackByKey, setFeedbackByKey] = useState({});
   const [expandedByKey, setExpandedByKey] = useState({});
@@ -11,10 +13,10 @@ function ResultsPanel({ results, shortlistedIds, onToggleShortlist }) {
 const getKey = (item) =>
   item.id || `${item.resume_name}-${item.jd_name}`;
   const getScoreLabel = (score) => {
-    if (score >= 85) return "Excellent match";
-    if (score >= 75) return "Strong fit";
-    if (score >= 65) return "Good fit";
-    return "Needs improvement";
+    if (score >= 85) return t("results.excellentMatch");
+    if (score >= 75) return t("results.strongFit");
+    if (score >= 65) return t("results.goodFit");
+    return t("results.needsImprovement");
   };
 
   const getScoreClass = (score) => {
@@ -47,7 +49,7 @@ const getKey = (item) =>
       setFeedbackByKey((prev) => ({ ...prev, [key]: aiFeedback }));
       setSelectedFeedback({ key, item, feedback: aiFeedback });
     } catch (err) {
-      setError(err?.response?.data?.detail || "Failed to generate AI feedback.");
+      setError(err?.response?.data?.detail || t("results.feedbackFailed"));
     } finally {
       setLoadingKey("");
     }
@@ -56,15 +58,15 @@ const getKey = (item) =>
   if (!results || !results.length) {
     return (
       <section className="card">
-        <h3>AI Insights</h3>
-        <p>Upload files to view screening analytics and AI feedback.</p>
+        <h3>{t("results.title")}</h3>
+        <p>{t("results.emptyDescription")}</p>
       </section>
     );
   }
 
   return (
     <section className="card">
-      <h3>Scoring Dashboard</h3>
+      <h3>{t("results.title")}</h3>
       {error && <p className="error">{error}</p>}
       <div className="stack">
         {results.map((item, index) => (
@@ -74,12 +76,12 @@ const getKey = (item) =>
               <div className="inline-controls">
                 <span className="pill">{item.jd_name}</span>
                 {(shortlistedIds || []).includes(Number(item.id)) && (
-                  <span className="shortlisted-badge">Shortlisted</span>
+                  <span className="shortlisted-badge">{t("results.shortlisted")}</span>
                 )}
               </div>
             </div>
             <p>
-              <strong>Final score:</strong>{" "}
+              <strong>{t("results.finalScore")}</strong>{" "}
               <span className={getScoreClass(Number(item.score))}>
                 {item.score} – {getScoreLabel(Number(item.score))}
               </span>
@@ -90,7 +92,7 @@ const getKey = (item) =>
                 onClick={() => generateFeedback(item, false)}
                 disabled={loadingKey === getKey(item)}
               >
-                {loadingKey === getKey(item) ? "Generating..." : "Generate AI Feedback"}
+                {loadingKey === getKey(item) ? t("results.generating") : t("results.generateFeedback")}
               </button>
               <button
                 type="button"
@@ -98,7 +100,7 @@ const getKey = (item) =>
                 onClick={() => generateFeedback(item, true)}
                 disabled={loadingKey === getKey(item)}
               >
-                Regenerate Feedback
+                {t("results.regenerateFeedback")}
               </button>
               <button
                 type="button"
@@ -107,7 +109,7 @@ const getKey = (item) =>
                   onToggleShortlist(Number(item.id), !(shortlistedIds || []).includes(Number(item.id)))
                 }
               >
-                {(shortlistedIds || []).includes(Number(item.id)) ? "Remove Shortlist" : "Shortlist"}
+                {(shortlistedIds || []).includes(Number(item.id)) ? t("results.removeShortlist") : t("results.shortlist")}
               </button>
               {!!feedbackByKey[getKey(item)] && (
                 <button
@@ -117,24 +119,23 @@ const getKey = (item) =>
                     setExpandedByKey((prev) => ({ ...prev, [getKey(item)]: !prev[getKey(item)] }))
                   }
                 >
-                  {expandedByKey[getKey(item)] ? "Collapse" : "Expand"}
+                  {expandedByKey[getKey(item)] ? t("results.collapse") : t("results.expand")}
                 </button>
               )}
             </div>
             {!!feedbackByKey[getKey(item)] && expandedByKey[getKey(item)] && (
               <div className="feedback-preview">
                 <p className="feedback-green">
-                  <strong>Strengths:</strong> {(feedbackByKey[getKey(item)].strengths || []).join(" | ")}
+                  <strong>{t("results.strengths")}</strong>: {(feedbackByKey[getKey(item)].strengths || []).join(" | ")}
                 </p>
                 <p className="feedback-red">
-                  <strong>Weaknesses:</strong> {(feedbackByKey[getKey(item)].weaknesses || []).join(" | ")}
+                  <strong>{t("results.weaknesses")}</strong>: {(feedbackByKey[getKey(item)].weaknesses || []).join(" | ")}
                 </p>
                 <p className="feedback-yellow">
-                  <strong>Missing Skills:</strong>{" "}
-                  {(feedbackByKey[getKey(item)].missing_skills || []).join(" | ")}
+                  <strong>{t("results.missingSkills")}</strong>: {(feedbackByKey[getKey(item)].missing_skills || []).join(" | ")}
                 </p>
                 <p className="feedback-blue">
-                  <strong>Suggestions:</strong> {(feedbackByKey[getKey(item)].suggestions || []).join(" | ")}
+                  <strong>{t("results.suggestions")}</strong>: {(feedbackByKey[getKey(item)].suggestions || []).join(" | ")}
                 </p>
               </div>
             )}
@@ -144,23 +145,22 @@ const getKey = (item) =>
       {selectedFeedback && (
         <div className="modal-overlay" onClick={() => setSelectedFeedback(null)} role="presentation">
           <div className="modal-card" onClick={(e) => e.stopPropagation()} role="presentation">
-            <h4>AI Resume Feedback</h4>
+            <h4>{t("results.aiFeedbackTitle")}</h4>
             <p className="muted">
               {selectedFeedback.item.resume_name} - {selectedFeedback.item.jd_name}
             </p>
             <div className="feedback-preview">
               <p className="feedback-green">
-                <strong>Strengths:</strong> {(selectedFeedback.feedback?.strengths || []).join(" | ")}
+                <strong>{t("results.strengths")}</strong>: {(selectedFeedback.feedback?.strengths || []).join(" | ")}
               </p>
               <p className="feedback-red">
-                <strong>Weaknesses:</strong> {(selectedFeedback.feedback?.weaknesses || []).join(" | ")}
+                <strong>{t("results.weaknesses")}</strong>: {(selectedFeedback.feedback?.weaknesses || []).join(" | ")}
               </p>
               <p className="feedback-yellow">
-                <strong>Missing Skills:</strong>{" "}
-                {(selectedFeedback.feedback?.missing_skills || []).join(" | ")}
+                <strong>{t("results.missingSkills")}</strong>: {(selectedFeedback.feedback?.missing_skills || []).join(" | ")}
               </p>
               <p className="feedback-blue">
-                <strong>Suggestions:</strong> {(selectedFeedback.feedback?.suggestions || []).join(" | ")}
+                <strong>{t("results.suggestions")}</strong>: {(selectedFeedback.feedback?.suggestions || []).join(" | ")}
               </p>
             </div>
             <div className="inline-controls">
@@ -174,10 +174,10 @@ const getKey = (item) =>
                   }))
                 }
               >
-                {expandedByKey[selectedFeedback.key] ? "Collapse" : "Expand"}
+                {expandedByKey[selectedFeedback.key] ? t("results.collapse") : t("results.expand")}
               </button>
               <button type="button" onClick={() => setSelectedFeedback(null)}>
-                Close
+                {t("results.close")}
               </button>
             </div>
           </div>

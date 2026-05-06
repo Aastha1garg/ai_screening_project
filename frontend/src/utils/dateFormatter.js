@@ -9,8 +9,7 @@ export const formatToIST = (timestamp) => {
     // Handle space-separated timestamps like "2026-05-05 05:06:00"
     let parsedTimestamp = timestamp;
     if (typeof timestamp === 'string' && timestamp.includes(' ') && !timestamp.includes('T')) {
-      parsedTimestamp = timestamp.replace(' ', 'T');
-    }
+        parsedTimestamp = timestamp.replace(' ', 'T') + 'Z';    }
     return new Date(parsedTimestamp).toLocaleString('en-IN', {
       timeZone: 'Asia/Kolkata',
       day: '2-digit',
@@ -44,8 +43,7 @@ export const formatDate = (timestamp, settings = {}) => {
     // Handle space-separated timestamps like "2026-05-05 05:06:00"
     let parsedTimestamp = timestamp;
     if (typeof timestamp === 'string' && timestamp.includes(' ') && !timestamp.includes('T')) {
-      parsedTimestamp = timestamp.replace(' ', 'T');
-    }
+    parsedTimestamp = timestamp.replace(' ', 'T') + 'Z';    }
     const date = new Date(parsedTimestamp);
 
     // Get date parts in the specified timezone using formatToParts for date components

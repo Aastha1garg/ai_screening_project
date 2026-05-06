@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { FiBell, FiChevronDown, FiSearch } from "react-icons/fi";
+import { useTranslation } from "react-i18next";
 import { formatDate } from "../utils/dateFormatter";
 import { useLanguageSettings } from "../context/LanguageContext";
 
@@ -17,6 +18,7 @@ function Navbar({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState({});
+  const { t } = useTranslation();
   const { languageSettings } = useLanguageSettings();
   const notificationsRef = useRef(null);
   const notificationButtonRef = useRef(null);
@@ -75,7 +77,7 @@ function Navbar({
           type="text"
           value={searchQuery}
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Search candidates, roles, skills..."
+          placeholder={t("navbar.searchPlaceholder")}
         />
       </div>
       <div className="navbar-actions">
@@ -103,7 +105,7 @@ function Navbar({
         {showNotifications &&
           createPortal(
             <div className="menu-dropdown notif-dropdown" style={dropdownStyle} ref={dropdownRef}>
-              <h4>Notifications</h4>
+              <h4>{t("navbar.notifications")}</h4>
               {notifications.length ? (
                 notifications.map((item) => (
                   <p key={item.id} className="notification-item">
@@ -112,7 +114,7 @@ function Navbar({
                   </p>
                 ))
               ) : (
-                <p className="muted">No notifications</p>
+                <p className="muted">{t("navbar.noNotifications")}</p>
               )}
             </div>,
             document.body
@@ -131,7 +133,10 @@ function Navbar({
           <FiChevronDown size={15} />
         </button>
         {showProfileMenu && (
-          <div className="menu-dropdown profile-menu-dropdown">
+          <div 
+            className="menu-dropdown profile-menu-dropdown"
+            style={{ position: "absolute", zIndex: 99999 }}
+          >
             <button
               type="button"
               className="menu-item-btn"
@@ -142,10 +147,10 @@ function Navbar({
                 }
               }}
             >
-              Profile Settings
+              {t("navbar.profile")}
             </button>
             <button type="button" className="menu-item-btn" onClick={onLogout}>
-              Logout
+              {t("navbar.logout")}
             </button>
           </div>
         )}

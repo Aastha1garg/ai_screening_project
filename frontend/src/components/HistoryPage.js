@@ -1,21 +1,23 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { formatDate } from "../utils/dateFormatter";
 import { useLanguageSettings } from "../context/LanguageContext";
 
 function HistoryPage({ history = [], shortlistedIds, onToggleShortlist }) {
+  const { t } = useTranslation();
   const { languageSettings } = useLanguageSettings();
   return (
     <section className="card">
-      <h3>History</h3>
+      <h3>{t("history.title")}</h3>
       <table className="table">
         <thead>
           <tr>
-            <th>Resume Name</th>
-            <th>Score</th>
-            <th>Date</th>
-            <th>Status</th>
-            <th>Format Score</th>
-            <th>Shortlist</th>
+            <th>{t("history.resumeName")}</th>
+            <th>{t("history.score")}</th>
+            <th>{t("history.date")}</th>
+            <th>{t("history.status")}</th>
+            <th>{t("history.formatScore")}</th>
+            <th>{t("history.shortlist")}</th>
           </tr>
         </thead>
         <tbody>
@@ -28,7 +30,7 @@ function HistoryPage({ history = [], shortlistedIds, onToggleShortlist }) {
                 <td>
                   <span className={`status-pill ${row.status}`}>{row.status}</span>
                   {(shortlistedIds || []).includes(Number(row.id)) && (
-                    <span className="shortlisted-badge">Shortlisted</span>
+                    <span className="shortlisted-badge">{t("history.shortlisted")}</span>
                   )}
                 </td>
                 <td>{row.format_score ?? 0}</td>
@@ -44,15 +46,15 @@ function HistoryPage({ history = [], shortlistedIds, onToggleShortlist }) {
                     }
                   >
                     {(shortlistedIds || []).includes(Number(row.id))
-                      ? "Remove"
-                      : "Shortlist"}
+                      ? t("buttons.cancel")
+                      : t("buttons.shortlist")}
                   </button>
                 </td>
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan="6">No history yet for your account.</td>
+              <td colSpan="6">{t("history.noResults")}</td>
             </tr>
           )}
         </tbody>

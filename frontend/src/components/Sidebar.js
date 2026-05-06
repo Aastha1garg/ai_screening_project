@@ -12,25 +12,28 @@ import {
   FiHelpCircle,
   FiEdit3,
 } from "react-icons/fi";
-
-const sidebarItems = [
-  { key: "dashboard", label: "Dashboard", icon: FiBarChart2 },
-  { key: "upload", label: "Upload", icon: FiUploadCloud },
-  { key: "parsed", label: "Parsed Resumes", icon: FiFileText },
-  { key: "history", label: "History", icon: FiClock },
-  { key: "shortlisted", label: "Shortlisted Candidates", icon: FiStar },
-  { key: "compare", label: "Compare", icon: FiGitBranch },
-  { key: "explain", label: "Explain AI", icon: FiHelpCircle },
-  { key: "improve", label: "Improve Resume", icon: FiEdit3 },
-  { key: "download", label: "Download", icon: FiDownload },
-  { key: "settings", label: "Settings", icon: FiSettings },
-];
+import { useTranslation } from "react-i18next";
 
 function Sidebar({ activePage, onNavigate, onLogout }) {
+  const { t } = useTranslation();
+
+  const sidebarItems = [
+    { key: "dashboard", label: t("sidebar.dashboard"), icon: FiBarChart2 },
+    { key: "upload", label: t("sidebar.upload"), icon: FiUploadCloud },
+    { key: "parsed", label: t("sidebar.parsedResumes"), icon: FiFileText },
+    { key: "history", label: t("sidebar.history"), icon: FiClock },
+    { key: "shortlisted", label: t("sidebar.shortlistedCandidates"), icon: FiStar },
+    { key: "compare", label: t("sidebar.compare"), icon: FiGitBranch },
+    { key: "explain", label: t("sidebar.explainAI"), icon: FiHelpCircle },
+    { key: "improve", label: t("sidebar.improveResume"), icon: FiEdit3 },
+    { key: "download", label: t("sidebar.download"), icon: FiDownload },
+    { key: "settings", label: t("sidebar.settings"), icon: FiSettings },
+  ];
+
   return (
     <aside className="sidebar">
-      <h2>Resume Vision</h2>
-      <p className="sidebar-subtitle">AI Resume Analytics</p>
+      <h2>{t("sidebar.appName")}</h2>
+      <p className="sidebar-subtitle">{t("sidebar.subtitle")}</p>
       <nav className="sidebar-nav">
         {sidebarItems.map((item) => {
           const Icon = item.icon;
@@ -48,7 +51,7 @@ function Sidebar({ activePage, onNavigate, onLogout }) {
       </nav>
       <button className="logout" onClick={onLogout}>
         <FiLogOut size={16} />
-        Logout
+        {t("navbar.logout")}
       </button>
     </aside>
   );

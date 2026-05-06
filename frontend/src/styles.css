@@ -16,7 +16,7 @@ body {
 .app-shell {
   position: relative;
   min-height: 100vh;
-  overflow: hidden;
+  overflow: visible; 
 }
 
 .bg-orb {
@@ -362,6 +362,8 @@ button:disabled {
   justify-content: space-between;
   align-items: center;
   gap: 14px;
+  position: relative;
+  z-index: 500;
 }
 
 .search-box {
@@ -1053,6 +1055,7 @@ button:disabled {
   padding: 10px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
   animation: dropdownFadeIn 0.2s ease-out;
+  isolation: isolate;
 }
 
 .profile-menu-dropdown {
@@ -1317,7 +1320,7 @@ button:disabled {
   border-color: rgba(79, 70, 229, 0.7);
 }
 
-/* ---- BUTTONS ---- */
+
 .btn-save,
 .btn-danger {
   display: flex;
@@ -1477,7 +1480,7 @@ button:disabled {
   color: #64748b;
 }
 
-/* ---- PREVIEW BOX ---- */
+
 .preview-box {
   margin-top: 20px;
   padding: 16px;
@@ -1504,7 +1507,7 @@ button:disabled {
   font-family: 'Courier New', monospace;
 }
 
-/* ---- APPEARANCE OPTIONS ---- */
+
 .appearance-options {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1561,7 +1564,7 @@ button:disabled {
   color: #cbd5e1;
 }
 
-/* ---- DANGER ZONE ---- */
+
 .danger-zone {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(239, 68, 68, 0.02) 100%);
   border: 1px solid rgba(239, 68, 68, 0.2);
@@ -1665,3 +1668,7 @@ button:disabled {
   }
 }
 
+.navbar-actions {
+  position: relative;
+  z-index: 1000;
+}

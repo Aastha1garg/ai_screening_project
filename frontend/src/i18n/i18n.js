@@ -1,34 +1,25 @@
-import i18n from 'i18next';
-import { initReactI18next } from 'react-i18next';
-import LanguageDetector from 'i18next-browser-languagedetector';
-import en from './locales/en.json';
-import kn from './locales/kn.json';
+import i18n from "i18next";
+import { initReactI18next } from "react-i18next";
+import LanguageDetector from "i18next-browser-languagedetector";
 
-const resources = {
-  en: { translation: en },
-  kn: { translation: kn },
-};
-
-// Get saved language from localStorage or detect from browser
-const savedLanguage = localStorage.getItem('i18n_language');
-const detectedLanguage = LanguageDetector.detect();
-const defaultLanguage = savedLanguage || detectedLanguage || 'en';
+// Import translations
+import en from "./locales/en.json";
+import kn from "./locales/kn.json";
 
 i18n
-  .use(LanguageDetector)
+  .use(LanguageDetector)   // ✅ correct usage
   .use(initReactI18next)
   .init({
-    resources,
-    lng: defaultLanguage,
-    fallbackLng: 'en',
-    interpolation: {
-      escapeValue: false,
+    resources: {
+      en: { translation: en },
+      kn: { translation: kn }
     },
-  });
+    fallbackLng: "en",
+    debug: true,
 
-// Persist language selection
-i18n.on('languageChanged', (lng) => {
-  localStorage.setItem('i18n_language', lng);
-});
+    interpolation: {
+      escapeValue: false
+    }
+  });
 
 export default i18n;

@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import Charts from "./Charts";
 import AnalyticsDashboard from "./AnalyticsDashboard";
 
@@ -52,6 +53,7 @@ function normalizeRows(results) {
 }
 
 function Dashboard({ groupedResults, searchQuery }) {
+  const { t } = useTranslation();
   const [activeJD, setActiveJD] = useState(groupedResults?.[0]?.jd_name || "");
 
   const groups = useMemo(
@@ -98,9 +100,9 @@ function Dashboard({ groupedResults, searchQuery }) {
   );
 
   const getBadge = (rank) => {
-    if (rank === 1) return "🥇 Top Candidate";
-    if (rank <= 3) return "🥈 Strong Match";
-    return "🥉 Moderate Match";
+    if (rank === 1) return `🥇 ${t("dashboard.topCandidate")}`;
+    if (rank <= 3) return `🥈 ${t("dashboard.strongMatch")}`;
+    return `🥉 ${t("dashboard.moderateMatch")}`;
   };
 
   return (
@@ -108,8 +110,8 @@ function Dashboard({ groupedResults, searchQuery }) {
       <section className="card">
         <div className="dashboard-header-row">
           <div>
-            <h3>Job Description Results</h3>
-            <p className="muted">Showing results for: <strong>{selectedGroup.jd_name}</strong></p>
+            <h3>{t("dashboard.jobDescriptionResults")}</h3>
+            <p className="muted">{t("dashboard.showingResults", { jdName: selectedGroup.jd_name })}</p>
           </div>
           {groups.length > 1 && (
             <div className="jd-tabs">
@@ -129,15 +131,15 @@ function Dashboard({ groupedResults, searchQuery }) {
       </section>
 
       <section className="card">
-        <h3>{selectedGroup.jd_name} — Top Candidates</h3>
+        <h3>{t("dashboard.topCandidatesForJD", { jdName: selectedGroup.jd_name })}</h3>
         <table className="table">
           <thead>
             <tr>
-              <th>Rank</th>
-              <th>Name</th>
-              <th>Score</th>
-              <th>Key Skills</th>
-              <th>Badge</th>
+              <th>{t("dashboard.rank")}</th>
+              <th>{t("dashboard.name")}</th>
+              <th>{t("dashboard.score")}</th>
+              <th>{t("dashboard.keySkills")}</th>
+              <th>{t("dashboard.badge")}</th>
             </tr>
           </thead>
           <tbody>
@@ -153,7 +155,7 @@ function Dashboard({ groupedResults, searchQuery }) {
               ))
             ) : (
               <tr>
-                <td colSpan="5">Upload and score resumes to view top candidates for this JD.</td>
+                <td colSpan="5">{t("dashboard.emptyTopCandidates")}</td>
               </tr>
             )}
           </tbody>
