@@ -115,9 +115,12 @@ function App() {
   const [realtimeProgress, setRealtimeProgress] = useState(null);
   const [realtimeResults, setRealtimeResults] = useState([]);
   
-  const { connect: connectRealtime, progress, results: rtResults, isConnected: isRtConnected, error: rtError } = useRealtimeScoring((result) => {
-    setRealtimeResults(prev => [...prev, result]);
-  });
+  const { connect: connectRealtime, progress, results: rtResults, isConnected: isRtConnected, error: rtError } = useRealtimeScoring(
+    (result) => {
+      setRealtimeResults((prev) => [...prev, result]);
+    },
+    token
+  );
 
   const parseJwtEmail = (jwtToken) => {
     try {
@@ -348,12 +351,21 @@ function App() {
         console.log("FINAL DATA:", resumeTexts, jdTexts);
         try {
           // Connect and stream results
-          await connectRealtime(resumeTexts, jdTexts, templateText);
+          const resultPayload = await connectRealtime(resumeTexts, jdTexts, templateText);
+          console.log("WS EVENT: all_completed", resultPayload);
+          const finalResults = Array.isArray(resultPayload?.results) ? resultPayload.results : [];
+
+          if (finalResults.length > 0) {
+            setResults(finalResults);
+            setGroupedResults(groupResultsByJD(finalResults));
+            setRealtimeResults(finalResults);
+          }
 
           // After real-time scoring completes, refresh history and process results
           await new Promise(resolve => setTimeout(resolve, 500)); // Brief delay for DB writes
           await refreshHistory();
         } catch (err) {
+          console.log("Realtime upload failed, falling back to REST upload", err);
           // WebSocket unavailable; silently fall back to REST upload
           const formData = new FormData();
           uploadResumes.forEach((file) => formData.append('resumes', file));

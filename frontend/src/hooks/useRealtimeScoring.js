@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-export function useRealtimeScoring(onResultReceived) {
+export function useRealtimeScoring(onResultReceived, authToken) {
   const wsRef = useRef(null);
+  const resultsRef = useRef([]);
   const [progress, setProgress] = useState(null);
   const [results, setResults] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -19,9 +20,16 @@ export function useRealtimeScoring(onResultReceived) {
     return url;
   };
 
+  const buildWebsocketUrl = (baseUrl, token) => {
+    if (!token) return baseUrl;
+    const separator = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${separator}token=${encodeURIComponent(token)}`;
+  };
+
   const getWebsocketEndpoints = () => {
     const envUrl = normalizeWebsocketUrl(process.env.REACT_APP_WEBSOCKET_URL || '');
-    const primaryUrl = 'ws://127.0.0.1:8000/ws/upload';
+    const token = authToken || localStorage.getItem('token');
+    const primaryUrl = buildWebsocketUrl('ws://127.0.0.1:8000/ws/upload', token);
     const fallbackUrl = null;
     return Array.from(new Set([primaryUrl, fallbackUrl].filter(Boolean)));
   };
@@ -104,7 +112,11 @@ export function useRealtimeScoring(onResultReceived) {
                 ...message.result,
                 id: Math.random()
               };
-              setResults((prev) => [...prev, newResult]);
+              setResults((prev) => {
+                const next = [...prev, newResult];
+                resultsRef.current = next;
+                return next;
+              });
               if (onResultReceived) {
                 onResultReceived(newResult);
               }
@@ -127,13 +139,20 @@ export function useRealtimeScoring(onResultReceived) {
                 error: message.error
               });
             } else if (message.event === 'all_completed') {
+              console.log('[RealtimeScoring] FINAL RESULTS:', message.results);
+              const finalResults = Array.isArray(message.results)
+                ? message.results
+                : resultsRef.current;
+              setResults(finalResults);
+              resultsRef.current = finalResults;
               setProgress({
                 event: 'all_completed',
-                total_results: message.total_results
+                total_results: message.total_results,
+                results: finalResults
               });
               resolve({
-                results: message.results || results,
-                total: message.total_results
+                results: finalResults,
+                total: message.total_results || finalResults.length
               });
             }
           } catch (parseError) {

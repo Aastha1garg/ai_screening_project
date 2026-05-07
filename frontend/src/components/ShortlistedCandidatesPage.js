@@ -15,15 +15,14 @@ function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggle
 
   // Validate and convert numeric input
   const validateAndConvertNumber = (value, fieldName) => {
-    if (value === "" || value === null || value === undefined) {
+    const rawValue = value === null || value === undefined ? "" : String(value).trim();
+    if (rawValue === "") {
       return { valid: true, result: null };
     }
-    
-    // Convert to number if string, or accept if already a number
-    const numValue = typeof value === 'string' ? parseInt(value, 10) : value;
-    
-    if (isNaN(numValue)) {
-      setValidationError(`${fieldName} must be a valid number`);
+
+    const numValue = Number(rawValue);
+    if (Number.isNaN(numValue) || !Number.isFinite(numValue) || !Number.isInteger(numValue)) {
+      setValidationError(`${fieldName} must be a valid whole number.`);
       return { valid: false, result: null };
     }
     if (numValue < 0) {
@@ -36,16 +35,8 @@ function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggle
   // Handle input change with proper conversion
   const handleThresholdChange = (field, value) => {
     setValidationError("");
-    // For number inputs, convert to integer if not empty
-    if (value === "") {
-      setThresholds((prev) => ({ ...prev, [field]: "" }));
-    } else {
-      const parsed = parseInt(value, 10);
-      if (!isNaN(parsed)) {
-        setThresholds((prev) => ({ ...prev, [field]: parsed }));
-      }
-      // If invalid, state remains unchanged (doesn't update)
-    }
+    const nextValue = value === null || value === undefined ? "" : String(value);
+    setThresholds((prev) => ({ ...prev, [field]: nextValue }));
   };
 
   const candidates = history.filter(
@@ -111,6 +102,60 @@ function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggle
     }
   };
 
+  const handleAutoReject = async () => {
+    setLoading(true);
+    setError("");
+    setMessage("");
+    setValidationError("");
+
+    try {
+      // Validate and convert all inputs
+      const skillMatchResult = validateAndConvertNumber(
+        thresholds.min_skill_match,
+        "Skill Match threshold"
+      );
+      if (!skillMatchResult.valid) {
+        setLoading(false);
+        return;
+      }
+
+      const scoreResult = validateAndConvertNumber(
+        thresholds.min_score,
+        "Score threshold"
+      );
+      if (!scoreResult.valid) {
+        setLoading(false);
+        return;
+      }
+
+      const experienceResult = validateAndConvertNumber(
+        thresholds.min_experience,
+        "Experience threshold"
+      );
+      if (!experienceResult.valid) {
+        setLoading(false);
+        return;
+      }
+
+      // Build payload with validated integers or null
+      const payload = {
+        min_skill_match: skillMatchResult.result,
+        min_score: scoreResult.result,
+        min_experience: experienceResult.result,
+      };
+
+      console.log("Payload being sent for reject:", payload);
+
+      const res = await apiClient.post("/shortlist/auto-reject", payload);
+      setMessage(`Auto-rejected ${res.data?.count || 0} candidate(s).`);
+      await onShortlistChanged();
+    } catch (err) {
+      setError(formatErrorForDisplay(err?.response?.data?.detail, "Auto-reject failed"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <section className="card">
       <h3>Shortlisted Candidates</h3>
@@ -146,7 +191,10 @@ function ShortlistedCandidatesPage({ history = [], shortlistedIds = [], onToggle
       </div>
       <div className="inline-controls">
         <button type="button" disabled={loading} onClick={handleAutoShortlist}>
-          {loading ? "Auto-shortlisting..." : "Run Auto-Shortlist"}
+          {loading ? "Auto-Shortlisting..." : "Auto Shortlist All"}
+        </button>
+        <button type="button" disabled={loading} onClick={handleAutoReject}>
+          {loading ? "Auto-Rejecting..." : "Auto Reject All"}
         </button>
       </div>
 

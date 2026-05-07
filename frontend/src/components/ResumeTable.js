@@ -1,9 +1,16 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { formatEducationList } from "../formatEducation";
 import FilterPanel from "./FilterPanel";
+import ThresholdFilter from "./ThresholdFilter";
 
 function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
   const [selectedRow, setSelectedRow] = useState(null);
+  const [threshold, setThreshold] = useState(60);
+  const [autoShortlistedIds, setAutoShortlistedIds] = useState(new Set());
+  const [autoRejectedIds, setAutoRejectedIds] = useState(new Set());
+  const previousAutoShortlistedIds = useRef(new Set());
+  const previousAutoRejectedIds = useRef(new Set());
+  
   const [filters, setFilters] = useState({
     score: "",
     experience: "",
@@ -23,6 +30,54 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
   const [sortBy, setSortBy] = useState("score");
   const [sortOrder, setSortOrder] = useState("desc");
   const [quickTop10, setQuickTop10] = useState(false);
+
+  // Auto-apply threshold when rows or threshold changes
+  useEffect(() => {
+    if (!rows || rows.length === 0) {
+      setAutoShortlistedIds(new Set());
+      setAutoRejectedIds(new Set());
+      previousAutoShortlistedIds.current = new Set();
+      previousAutoRejectedIds.current = new Set();
+      return;
+    }
+
+    const shortlistedSet = new Set();
+    const rejectedSet = new Set();
+
+    rows.forEach((row) => {
+      const scoreValue = row.scoreValue || 0;
+      const rowId = Number(row.historyId ?? row.id);
+
+      if (scoreValue >= threshold) {
+        shortlistedSet.add(rowId);
+      } else {
+        rejectedSet.add(rowId);
+      }
+    });
+
+    setAutoShortlistedIds(shortlistedSet);
+    setAutoRejectedIds(rejectedSet);
+
+    // Auto-trigger shortlist/rejection updates in batches
+    shortlistedSet.forEach((id) => {
+      if (!previousAutoShortlistedIds.current.has(id) && !shortlistedIds.includes(id)) {
+        onToggleShortlist(id, true);
+      }
+    });
+
+    rejectedSet.forEach((id) => {
+      if (!previousAutoRejectedIds.current.has(id) && shortlistedIds.includes(id)) {
+        onToggleShortlist(id, false);
+      }
+    });
+
+    previousAutoShortlistedIds.current = shortlistedSet;
+    previousAutoRejectedIds.current = rejectedSet;
+  }, [threshold, rows, shortlistedIds, onToggleShortlist]);
+
+  const handleThresholdChange = (newThreshold) => {
+    setThreshold(newThreshold);
+  };
 
   const activeFilters = useMemo(
     () =>
@@ -127,6 +182,7 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
 
   return (
     <>
+      <ThresholdFilter onThresholdChange={handleThresholdChange} currentThreshold={threshold} />
       <FilterPanel
         filters={filters}
         setFilters={setFilters}
@@ -166,7 +222,6 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
             <th>Matched / Missing Skills</th>
             <th>Sentiment</th>
             <th>Status</th>
-            <th>Shortlist</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -203,29 +258,12 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
                 </td>
                 <td>
                   <span className={`status-pill ${row.status}`}>{row.status}</span>
-                  {(shortlistedIds.includes(row.historyId) || row.shortlisted) && (
-                    <span className="shortlisted-badge">Shortlisted</span>
+                  {autoShortlistedIds.has(row.historyId || row.id) && (
+                    <span className="auto-shortlist-badge">Auto-Shortlisted</span>
                   )}
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className={
-                      shortlistedIds.includes(row.historyId) || row.shortlisted
-                        ? "secondary-btn"
-                        : ""
-                    }
-                    onClick={() =>
-                      onToggleShortlist(
-                        row.historyId,
-                        !(shortlistedIds.includes(row.historyId) || row.shortlisted)
-                      )
-                    }
-                  >
-                    {shortlistedIds.includes(row.historyId) || row.shortlisted
-                      ? "Remove"
-                      : "Shortlist"}
-                  </button>
+                  {autoRejectedIds.has(row.historyId || row.id) && (
+                    <span className="auto-rejected-badge">Auto-Rejected</span>
+                  )}
                 </td>
                 <td>
                   <button type="button" onClick={() => setSelectedRow(row)}>
@@ -236,7 +274,7 @@ function ResumeTable({ rows, shortlistedIds, onToggleShortlist }) {
             ))
           ) : (
             <tr>
-              <td colSpan="10">No parsed resumes yet. Upload files to populate this table.</td>
+              <td colSpan="9">No parsed resumes yet. Upload files to populate this table.</td>
             </tr>
           )}
         </tbody>

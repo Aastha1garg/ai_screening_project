@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { FiBell, FiChevronDown, FiSearch } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
-import { formatDate } from "../utils/dateFormatter";
+import { formatDateOnly } from "../utils/dateFormatter";
 import { formatErrorForDisplay } from "../utils/errorHandler";
 import { useLanguageSettings } from "../context/LanguageContext";
 
@@ -111,7 +111,7 @@ function Navbar({
                 notifications.map((item) => (
                   <p key={item.id} className="notification-item">
                     <strong>{typeof item.message === 'string' ? item.message : formatErrorForDisplay(item.message, 'Notification')}</strong>
-                    <span className="muted">{formatDate(item.created_at, languageSettings)}</span>
+                    <span className="muted">{formatDateOnly(item.created_at, languageSettings)}</span>
                   </p>
                 ))
               ) : (

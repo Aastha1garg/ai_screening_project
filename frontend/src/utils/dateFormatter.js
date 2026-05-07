@@ -96,6 +96,58 @@ export const formatDate = (timestamp, settings = {}) => {
   }
 };
 
+export const formatDateOnly = (timestamp, settings = {}) => {
+  const timezone = settings.timezone || 'Asia/Kolkata';
+  const dateFormat = settings.dateFormat || 'DD MMM YYYY';
+
+  if (!timestamp) return 'N/A';
+
+  try {
+    let parsedTimestamp = timestamp;
+    if (typeof timestamp === 'string' && timestamp.includes(' ') && !timestamp.includes('T')) {
+      parsedTimestamp = timestamp.replace(' ', 'T') + 'Z';
+    }
+    const date = new Date(parsedTimestamp);
+
+    const formatter = new Intl.DateTimeFormat('en-IN', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+
+    const parts = {};
+    formatter.formatToParts(date).forEach(({ type, value }) => {
+      parts[type] = value;
+    });
+
+    const day = parts.day;
+    const month = parts.month;
+    const year = parts.year;
+
+    let formattedDate;
+    switch (dateFormat) {
+      case 'MM/DD/YYYY':
+        formattedDate = `${month}/${day}/${year}`;
+        break;
+      case 'YYYY-MM-DD':
+        formattedDate = `${year}-${month}-${day}`;
+        break;
+      case 'DD MMM YYYY':
+      default:
+        const monthObj = new Date(date.getFullYear(), parseInt(month) - 1);
+        const monthName = monthObj.toLocaleString('en-IN', { month: 'short' });
+        formattedDate = `${day} ${monthName} ${year}`;
+        break;
+    }
+
+    return formattedDate;
+  } catch (error) {
+    console.warn('Failed to format date-only:', error);
+    return 'N/A';
+  }
+};
+
 /**
  * Simple helper to format timestamps for IST (Asia/Kolkata)
  * Useful for quick formatting without needing language settings

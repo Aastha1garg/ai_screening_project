@@ -7,9 +7,10 @@ from datetime import datetime
 import re
 from typing import Optional, List, Dict, Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Body, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from jose import JWTError, jwt
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, Text, text
 from sqlalchemy.orm import Session
@@ -26,6 +27,9 @@ from auth import (
     get_current_user,
     get_db,
     hash_password,
+    SECRET_KEY,
+    ALGORITHM,
+    SessionLocal,
 )
 from format_checker import analyze_resume_format, detect_sections, read_upload_file
 from ai_feedback import generate_ai_feedback, generate_resume_improvement
@@ -177,10 +181,10 @@ class ResumeFilterPayload(BaseModel):
 
 
 class AutoShortlistPayload(BaseModel):
-    min_skill_match: Optional[int] = None
-    min_score: Optional[int] = None
-    min_experience: Optional[int] = None
-    
+    min_skill_match: Optional[str] = None
+    min_score: Optional[str] = None
+    min_experience: Optional[str] = None
+
     model_config = ConfigDict(str_strip_whitespace=True)
 
 
@@ -242,6 +246,23 @@ def _infer_status(score: float) -> str:
     if score >= 50:
         return "pending"
     return "rejected"
+
+
+def _get_user_from_ws_token(token: str, db: Session) -> User:
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authentication token for WebSocket")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email = payload.get("sub")
+        if not email:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid authentication token") from exc
+
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
 
 
 def _build_csv(rows: List[ScreeningHistory]) -> io.StringIO:
@@ -707,88 +728,141 @@ async def websocket_upload(websocket: WebSocket):
     print("WebSocket request received")
     await websocket.accept()
     print("WebSocket accepted")
-    
+
+    db = SessionLocal()
     try:
-        # Receive upload data with safe handling
+        token = websocket.query_params.get("token")
         try:
-            data = await websocket.receive_json()
-            print("Data received (JSON):", data)
-        except Exception as json_error:
-            print("Failed to parse JSON, trying text:", json_error)
+            current_user = _get_user_from_ws_token(token, db)
+        except HTTPException as auth_exc:
+            await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                event="error",
+                total_pairs=0,
+                current_pair=0,
+                current_resume="",
+                current_jd="",
+                error=auth_exc.detail
+            )))
+            await websocket.close(code=1008)
+            return
+
+        try:
+            # Receive upload data with safe handling
             try:
-                text_data = await websocket.receive_text()
-                print("Data received (text):", text_data)
-                data = json.loads(text_data)
-            except Exception as text_error:
-                print("Failed to parse text data:", text_error)
+                data = await websocket.receive_json()
+                print("Data received (JSON):", data)
+            except Exception as json_error:
+                print("Failed to parse JSON, trying text:", json_error)
+                try:
+                    text_data = await websocket.receive_text()
+                    print("Data received (text):", text_data)
+                    data = json.loads(text_data)
+                except Exception as text_error:
+                    print("Failed to parse text data:", text_error)
+                    await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                        event="error",
+                        total_pairs=0,
+                        current_pair=0,
+                        current_resume="",
+                        current_jd="",
+                        error="Invalid data format received"
+                    )))
+                    await websocket.close(code=1003)
+                    return
+
+            resumes = data.get("resumes", [])
+            jds = data.get("jds", [])
+            template_text = data.get("template", "")
+
+            if not resumes or not jds:
+                print("No resumes or JDs provided")
                 await websocket.send_text(serialize_scoring_progress(ScoringProgress(
                     event="error",
                     total_pairs=0,
                     current_pair=0,
                     current_resume="",
                     current_jd="",
-                    error="Invalid data format received"
+                    error="At least one resume and one JD required"
                 )))
-                await websocket.close(code=1003)
+                await websocket.close(code=1008)
                 return
-        
-        resumes = data.get("resumes", [])
-        jds = data.get("jds", [])
-        template_text = data.get("template", "")
-        
-        if not resumes or not jds:
-            print("No resumes or JDs provided")
-            await websocket.send_text(serialize_scoring_progress(ScoringProgress(
-                event="error",
-                total_pairs=0,
-                current_pair=0,
-                current_resume="",
-                current_jd="",
-                error="At least one resume and one JD required"
-            )))
-            await websocket.close(code=1008)
-            return
-        
-        # Prepare resume and JD tuples
-        resume_tuples = [(r.get("name", f"Resume {i}"), r.get("text", "")) for i, r in enumerate(resumes)]
-        jd_tuples = [(j.get("name", f"JD {i}"), j.get("text", "")) for i, j in enumerate(jds)]
-        
-        # Callback to send progress updates via WebSocket
-        async def send_progress(progress: ScoringProgress):
-            await websocket.send_text(serialize_scoring_progress(progress))
-        
-        # Stream results
-        results = await stream_resume_screening(
-            resume_tuples,
-            jd_tuples,
-            template_text,
-            send_progress
-        )
-        
-        # Send final completion message with all results
-        await websocket.send_text(json.dumps({
-            "event": "all_completed",
-            "total_results": len(results),
-            "results": results
-        }))
-        
-    except WebSocketDisconnect:
-        print("Client disconnected from real-time scoring WebSocket")
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-        try:
-            await websocket.send_text(serialize_scoring_progress(ScoringProgress(
-                event="error",
-                total_pairs=0,
-                current_pair=0,
-                current_resume="",
-                current_jd="",
-                error=f"Server error: {str(e)}"
-            )))
-        except:
-            pass
-        finally:
-            await websocket.close(code=1011)
+
+            # Prepare resume and JD tuples
+            resume_tuples = [(r.get("name", f"Resume {i}"), r.get("text", "")) for i, r in enumerate(resumes)]
+            jd_tuples = [(j.get("name", f"JD {i}"), j.get("text", "")) for i, j in enumerate(jds)]
+
+            # Callback to send progress updates via WebSocket
+            async def send_progress(progress: ScoringProgress):
+                await websocket.send_text(serialize_scoring_progress(progress))
+
+            # Stream results
+            results = await stream_resume_screening(
+                resume_tuples,
+                jd_tuples,
+                template_text,
+                send_progress
+            )
+
+            # Persist real-time results so dashboard/history can refresh
+            db_results = []
+            for result in results:
+                result_status = _infer_status(result.get("final_score", 0))
+                history = ScreeningHistory(
+                    user_id=current_user.id,
+                    resume_text=result.get("resume_text", ""),
+                    jd_text=result.get("jd_text", ""),
+                    final_score=float(result.get("final_score", 0)),
+                    resume_name=result.get("resume_name", "Unknown Resume"),
+                    jd_name=result.get("jd_name", "Unknown JD"),
+                    status=result_status,
+                    format_score=float(result.get("format_check", {}).get("format_score", 0)),
+                    skill_score=float(result.get("skill_score", 0)),
+                    matched_skills=json.dumps(result.get("matched_skills", [])),
+                    missing_skills=json.dumps(result.get("missing_skills", [])),
+                    result_payload=json.dumps(result),
+                )
+                db.add(history)
+                db.flush()
+                db_results.append(history)
+
+            # Send user notification for completion
+            create_notification(
+                db,
+                current_user.id,
+                f"Resume upload completed ({len(results)} results generated)."
+            )
+            if any(float(r.get("final_score", 0)) >= 80 for r in results):
+                create_notification(db, current_user.id, "New high-score candidate detected (>=80).")
+            if any(float(r.get("format_check", {}).get("format_score", 0)) < 70 for r in results):
+                create_notification(db, current_user.id, "Format mismatch warning found in one or more resumes.")
+            db.commit()
+
+            # Send final completion message with all results
+            await websocket.send_text(json.dumps({
+                "event": "all_completed",
+                "total_results": len(results),
+                "results": results
+            }))
+
+        except WebSocketDisconnect:
+            print("Client disconnected from real-time scoring WebSocket")
+        except Exception as e:
+            print(f"WebSocket error: {e}")
+            try:
+                await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                    event="error",
+                    total_pairs=0,
+                    current_pair=0,
+                    current_resume="",
+                    current_jd="",
+                    error=f"Server error: {str(e)}"
+                )))
+            except:
+                pass
+            finally:
+                await websocket.close(code=1011)
+    finally:
+        db.close()
 
 
 @app.get("/history", response_model=List[HistoryItem])
@@ -878,6 +952,120 @@ def get_shortlisted(
     return {"count": len(serialized), "results": serialized}
 
 
+def _user_history_query(db: Session, user_id: int):
+    return (
+        db.query(ScreeningHistory)
+        .filter(ScreeningHistory.user_id == user_id)
+        .order_by(ScreeningHistory.created_at.desc())
+    )
+
+
+def _parse_optional_int(value):
+    """Convert a value to int or return None if empty."""
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+@app.post("/shortlist/auto")
+def auto_shortlist(
+    payload: dict = Body({}),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    rows = _user_history_query(db, current_user.id).all()
+    serialized = [_serialize_history_row(row) for row in rows]
+    shortlisted = serialized
+
+    min_skill_match = _parse_optional_int(payload.get("min_skill_match"))
+    min_score = _parse_optional_int(payload.get("min_score"))
+    min_experience = _parse_optional_int(payload.get("min_experience"))
+
+    if min_skill_match is not None:
+        shortlisted = [r for r in shortlisted if r.get("skill_score", 0) >= min_skill_match]
+    if min_score is not None:
+        shortlisted = [r for r in shortlisted if r.get("score", 0) >= min_score]
+    if min_experience is not None:
+        shortlisted = [r for r in shortlisted if r.get("experience", 0) >= min_experience]
+
+    shortlisted_ids = {row["id"] for row in shortlisted}
+    if shortlisted_ids:
+        (
+            db.query(ScreeningHistory)
+            .filter(
+                ScreeningHistory.user_id == current_user.id,
+                ScreeningHistory.id.in_(shortlisted_ids),
+            )
+            .update({ScreeningHistory.shortlisted: True}, synchronize_session=False)
+        )
+        db.commit()
+
+    refreshed = (
+        db.query(ScreeningHistory)
+        .filter(
+            ScreeningHistory.user_id == current_user.id,
+            ScreeningHistory.id.in_(shortlisted_ids),
+        )
+        .all()
+        if shortlisted_ids
+        else []
+    )
+    return {
+        "count": len(refreshed),
+        "results": [_serialize_history_row(row) for row in refreshed],
+    }
+
+
+@app.post("/shortlist/auto-reject")
+def auto_reject(
+    payload: dict = Body({}),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    rows = _user_history_query(db, current_user.id).all()
+    serialized = [_serialize_history_row(row) for row in rows]
+    rejected = serialized
+
+    min_skill_match = _parse_optional_int(payload.get("min_skill_match"))
+    min_score = _parse_optional_int(payload.get("min_score"))
+    min_experience = _parse_optional_int(payload.get("min_experience"))
+
+    if min_skill_match is not None:
+        rejected = [r for r in rejected if r.get("skill_score", 0) < min_skill_match]
+    if min_score is not None:
+        rejected = [r for r in rejected if r.get("score", 0) < min_score]
+    if min_experience is not None:
+        rejected = [r for r in rejected if r.get("experience", 0) < min_experience]
+
+    rejected_ids = {row["id"] for row in rejected}
+    if rejected_ids:
+        (
+            db.query(ScreeningHistory)
+            .filter(
+                ScreeningHistory.user_id == current_user.id,
+                ScreeningHistory.id.in_(rejected_ids),
+            )
+            .update({ScreeningHistory.shortlisted: False}, synchronize_session=False)
+        )
+        db.commit()
+
+    refreshed = (
+        db.query(ScreeningHistory)
+        .filter(
+            ScreeningHistory.user_id == current_user.id,
+            ScreeningHistory.id.in_(rejected_ids),
+        )
+        .all()
+    )
+    return {
+        "count": len(refreshed),
+        "results": [_serialize_history_row(row) for row in refreshed],
+    }
+
+
 @app.post("/shortlist/{history_id}")
 def shortlist_candidate(
     history_id: int,
@@ -920,58 +1108,6 @@ def unshortlist_candidate(
     db.commit()
     db.refresh(row)
     return {"message": "Candidate removed from shortlist", "candidate": _serialize_history_row(row)}
-
-
-@app.post("/shortlist/auto")
-def auto_shortlist(
-    payload: AutoShortlistPayload,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    rows = _user_history_query(db, current_user.id).all()
-    serialized = [_serialize_history_row(row) for row in rows]
-    shortlisted = serialized
-    if payload.min_skill_match is not None:
-        shortlisted = [r for r in shortlisted if r.get("skill_score", 0) >= payload.min_skill_match]
-    if payload.min_score is not None:
-        shortlisted = [r for r in shortlisted if r.get("score", 0) >= payload.min_score]
-    if payload.min_experience is not None:
-        shortlisted = [r for r in shortlisted if r.get("experience", 0) >= payload.min_experience]
-
-    shortlisted_ids = {row["id"] for row in shortlisted}
-    if shortlisted_ids:
-        (
-            db.query(ScreeningHistory)
-            .filter(
-                ScreeningHistory.user_id == current_user.id,
-                ScreeningHistory.id.in_(shortlisted_ids),
-            )
-            .update({ScreeningHistory.shortlisted: True}, synchronize_session=False)
-        )
-        db.commit()
-
-    refreshed = (
-        db.query(ScreeningHistory)
-        .filter(
-            ScreeningHistory.user_id == current_user.id,
-            ScreeningHistory.id.in_(shortlisted_ids),
-        )
-        .all()
-        if shortlisted_ids
-        else []
-    )
-    return {
-        "count": len(refreshed),
-        "results": [_serialize_history_row(row) for row in refreshed],
-    }
-
-
-def _user_history_query(db: Session, user_id: int):
-    return (
-        db.query(ScreeningHistory)
-        .filter(ScreeningHistory.user_id == user_id)
-        .order_by(ScreeningHistory.created_at.desc())
-    )
 
 
 def _get_user_history_row(db: Session, user_id: int, history_id: int) -> Optional[ScreeningHistory]:
