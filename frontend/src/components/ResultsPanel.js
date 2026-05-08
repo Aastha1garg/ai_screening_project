@@ -83,8 +83,8 @@ const getKey = (item) =>
             </div>
             <p>
               <strong>{t("results.finalScore")}</strong>{" "}
-              <span className={getScoreClass(Number(item.score))}>
-                {item.score} – {getScoreLabel(Number(item.score))}
+              <span className={getScoreClass(Number((item.score ?? item.final_score) || 0))}>
+  {(item.score ?? item.final_score ?? 0)} – {getScoreLabel(Number((item.score ?? item.final_score) || 0))}
               </span>
             </p>
             <div className="inline-controls">

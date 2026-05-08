@@ -68,6 +68,40 @@ class Notification(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+def convert_to_serializable(obj: Any) -> Any:
+    """
+    Recursively convert numpy types and other non-JSON-serializable objects to JSON-serializable types.
+    Handles numpy scalars, arrays, and nested structures.
+    """
+    try:
+        import numpy as np
+        
+        # Handle numpy scalar types
+        if isinstance(obj, (np.integer, np.floating)):
+            return obj.item()  # Convert to native Python type
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()  # Convert array to list
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, np.complexfloating):
+            return float(obj.real)
+    except ImportError:
+        pass
+    
+    # Handle standard Python types
+    if isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_serializable(item) for item in obj]
+    elif isinstance(obj, (int, float, str, bool, type(None))):
+        return obj
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    else:
+        # For any other type, try to convert to string as fallback
+        return str(obj)
+
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AI Resume Screening API", version="1.0.0")
@@ -711,6 +745,10 @@ async def upload_resume(
 async def websocket_upload(websocket: WebSocket):
     """
     WebSocket endpoint for real-time resume screening with streaming progress updates.
+    Uses the same scoring pipeline as traditional upload for consistency.
+    
+    Progress is tracked by individual files (resumes), not resume×JD pairs.
+    Progress only increases from 0% to 100%, shown only after all results are processed and saved.
     
     Expected incoming message format:
     {
@@ -721,9 +759,9 @@ async def websocket_upload(websocket: WebSocket):
     
     Outgoing messages (ScoringProgress events):
     - started: Screening started
-    - processing: Processing a resume/JD pair
-    - completed: Result for a specific pair
+    - completed: Result for a resume×JD pair
     - error: Error occurred during processing
+    - all_completed: All results ready and saved to DB, with 100% progress
     """
     print("WebSocket request received")
     await websocket.accept()
@@ -737,8 +775,8 @@ async def websocket_upload(websocket: WebSocket):
         except HTTPException as auth_exc:
             await websocket.send_text(serialize_scoring_progress(ScoringProgress(
                 event="error",
-                total_pairs=0,
-                current_pair=0,
+                total_files=0,
+                completed_files=0,
                 current_resume="",
                 current_jd="",
                 error=auth_exc.detail
@@ -761,8 +799,8 @@ async def websocket_upload(websocket: WebSocket):
                     print("Failed to parse text data:", text_error)
                     await websocket.send_text(serialize_scoring_progress(ScoringProgress(
                         event="error",
-                        total_pairs=0,
-                        current_pair=0,
+                        total_files=0,
+                        completed_files=0,
                         current_resume="",
                         current_jd="",
                         error="Invalid data format received"
@@ -778,8 +816,8 @@ async def websocket_upload(websocket: WebSocket):
                 print("No resumes or JDs provided")
                 await websocket.send_text(serialize_scoring_progress(ScoringProgress(
                     event="error",
-                    total_pairs=0,
-                    current_pair=0,
+                    total_files=len(resumes),
+                    completed_files=0,
                     current_resume="",
                     current_jd="",
                     error="At least one resume and one JD required"
@@ -795,7 +833,7 @@ async def websocket_upload(websocket: WebSocket):
             async def send_progress(progress: ScoringProgress):
                 await websocket.send_text(serialize_scoring_progress(progress))
 
-            # Stream results
+            # Stream results - uses same scoring as traditional upload
             results = await stream_resume_screening(
                 resume_tuples,
                 jd_tuples,
@@ -803,45 +841,118 @@ async def websocket_upload(websocket: WebSocket):
                 send_progress
             )
 
-            # Persist real-time results so dashboard/history can refresh
-            db_results = []
+            # Deduplicate results: keep only one result per (resume_name, jd_name) pair
+            seen_pairs = set()
+            deduplicated_results = []
             for result in results:
-                result_status = _infer_status(result.get("final_score", 0))
-                history = ScreeningHistory(
-                    user_id=current_user.id,
-                    resume_text=result.get("resume_text", ""),
-                    jd_text=result.get("jd_text", ""),
-                    final_score=float(result.get("final_score", 0)),
-                    resume_name=result.get("resume_name", "Unknown Resume"),
-                    jd_name=result.get("jd_name", "Unknown JD"),
-                    status=result_status,
-                    format_score=float(result.get("format_check", {}).get("format_score", 0)),
-                    skill_score=float(result.get("skill_score", 0)),
-                    matched_skills=json.dumps(result.get("matched_skills", [])),
-                    missing_skills=json.dumps(result.get("missing_skills", [])),
-                    result_payload=json.dumps(result),
+                pair_key = (result.get("resume_name"), result.get("jd_name"))
+                if pair_key not in seen_pairs:
+                    seen_pairs.add(pair_key)
+                    deduplicated_results.append(result)
+            
+            print(f"Deduplicated {len(results)} results to {len(deduplicated_results)} unique resume-JD pairs")
+
+            # OPTIMIZED: Batch persist all results at once instead of individual flush
+            try:
+                db_results = []
+                history_records = []
+                
+                # Build all records first (fast)
+                for result in deduplicated_results:
+                    result_status = _infer_status(result.get("final_score", 0))
+                    history = ScreeningHistory(
+                        user_id=current_user.id,
+                        resume_text=result.get("resume_text", ""),
+                        jd_text=result.get("jd_text", ""),
+                        final_score=float(result.get("final_score", 0)),
+                        resume_name=result.get("resume_name", "Unknown Resume"),
+                        jd_name=result.get("jd_name", "Unknown JD"),
+                        status=result_status,
+                        format_score=float(result.get("format_check", {}).get("format_score", 0)),
+                        skill_score=float(result.get("skill_score", 0)),
+                        matched_skills=json.dumps(result.get("matched_skills", [])),
+                        missing_skills=json.dumps(result.get("missing_skills", [])),
+                        result_payload=json.dumps(result),
+                    )
+                    history_records.append(history)
+                
+                # Batch add all records at once
+                db.add_all(history_records)
+                db.commit()
+                
+                print(f"Successfully persisted {len(history_records)} results to database")
+            except Exception as db_err:
+                print(f"Database persistence error: {db_err}")
+                db.rollback()
+                await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                    event="error",
+                    total_files=len(resumes),
+                    completed_files=len(resumes),
+                    current_resume="",
+                    current_jd="",
+                    error=f"Database error: {str(db_err)}"
+                )))
+                await websocket.close(code=1011)
+                return
+
+            # Create user notifications asynchronously (don't block result sending)
+            try:
+                create_notification(
+                    db,
+                    current_user.id,
+                    f"Resume upload completed ({len(deduplicated_results)} results generated)."
                 )
-                db.add(history)
-                db.flush()
-                db_results.append(history)
+                if any(float(r.get("final_score", 0)) >= 80 for r in deduplicated_results):
+                    create_notification(db, current_user.id, "New high-score candidate detected (>=80).")
+                if any(float(r.get("format_check", {}).get("format_score", 0)) < 70 for r in deduplicated_results):
+                    create_notification(db, current_user.id, "Format mismatch warning found in one or more resumes.")
+                db.commit()
+            except:
+                pass  # Don't fail on notification errors
+            
+            # Build final results for client (minimal format, only needed fields)
+            final_results = []
+            for result in deduplicated_results:
+                result_dict = {
+                    "resume_name": result.get("resume_name", ""),
+                    "jd_name": result.get("jd_name", ""),
+                    "resume_text": result.get("resume_text", ""),
+                    "jd_text": result.get("jd_text", ""),
+                    "score": result.get("final_score", 0),
+                    "skill_score": result.get("skill_score", 0),
+                    "format_score": float(result.get("format_check", {}).get("format_score", 0)),
+                    "matched_skills": result.get("matched_skills", []),
+                    "missing_skills": result.get("missing_skills", []),
+                    "extra_skills": result.get("extra_skills", []),
+                    "partial_matches": result.get("partial_matches", []),
+                    "experience": result.get("experience", {}),
+                    "education": result.get("education", []),
+                    "required_education": result.get("required_education", []),
+                    "certifications_all": result.get("certifications_all", result.get("certifications", [])),
+                    "certifications_required": result.get("certifications_required", result.get("required_certifications", [])),
+                    "certifications_matched": result.get("certifications_matched", result.get("matched_certifications", [])),
+                    "certifications_missing": result.get("certifications_missing", result.get("missing_certifications", [])),
+                    "certifications_extra": result.get("certifications_extra", result.get("extra_certifications", [])),
+                    "education_match": result.get("education_match", ""),
+                    "experience_match": result.get("experience_match", ""),
+                    "score_breakdown": result.get("score_breakdown", {}),
+                    "sentiment": result.get("sentiment", "neutral"),
+                    "profile_label": result.get("profile_label", "Needs Improvement"),
+                    "status": _infer_status(result.get("final_score", 0)),
+                    "feedback": result.get("ai_feedback", {}),
+                    "shortlisted": False,
+                }
+                # Convert all numpy types and nested structures to JSON-serializable types
+                final_results.append(convert_to_serializable(result_dict))
 
-            # Send user notification for completion
-            create_notification(
-                db,
-                current_user.id,
-                f"Resume upload completed ({len(results)} results generated)."
-            )
-            if any(float(r.get("final_score", 0)) >= 80 for r in results):
-                create_notification(db, current_user.id, "New high-score candidate detected (>=80).")
-            if any(float(r.get("format_check", {}).get("format_score", 0)) < 70 for r in results):
-                create_notification(db, current_user.id, "Format mismatch warning found in one or more resumes.")
-            db.commit()
-
-            # Send final completion message with all results
+            # Send completion message with 100% progress
             await websocket.send_text(json.dumps({
                 "event": "all_completed",
-                "total_results": len(results),
-                "results": results
+                "total_files": len(resumes),
+                "completed_files": len(resumes),
+                "progress_percent": 100.0,
+                "total_results": len(final_results),
+                "results": final_results
             }))
 
         except WebSocketDisconnect:
@@ -851,8 +962,8 @@ async def websocket_upload(websocket: WebSocket):
             try:
                 await websocket.send_text(serialize_scoring_progress(ScoringProgress(
                     event="error",
-                    total_pairs=0,
-                    current_pair=0,
+                    total_files=0,
+                    completed_files=0,
                     current_resume="",
                     current_jd="",
                     error=f"Server error: {str(e)}"

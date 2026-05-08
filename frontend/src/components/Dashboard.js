@@ -18,7 +18,7 @@ function inferStatus(score) {
 
 function normalizeRows(results) {
   return results.map((item) => {
-    const numericScore = Number(item.score) || 0;
+    const numericScore = Number(item.score ?? item.final_score) || 0;
     const feedback = item.feedback || {};
     
     // Safely extract certifications from various backend formats

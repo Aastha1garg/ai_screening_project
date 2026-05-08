@@ -90,65 +90,74 @@ export function useRealtimeScoring(onResultReceived, authToken) {
             const message = JSON.parse(event.data);
 
             if (message.event === 'started') {
+              // Progress starts at 0% for all files
               setProgress({
                 event: 'started',
-                total_pairs: message.total_pairs,
-                current_pair: 0,
+                total_files: message.total_files,
+                completed_files: 0,
                 current_resume: '',
                 current_jd: '',
                 progress_percent: 0
               });
-            } else if (message.event === 'processing') {
-              setProgress({
-                event: 'processing',
-                total_pairs: message.total_pairs,
-                current_pair: message.current_pair,
-                current_resume: message.current_resume,
-                current_jd: message.current_jd,
-                progress_percent: message.progress_percent
-              });
             } else if (message.event === 'completed') {
-              const newResult = {
-                ...message.result,
-                id: Math.random()
-              };
-              setResults((prev) => {
-                const next = [...prev, newResult];
-                resultsRef.current = next;
-                return next;
-              });
-              if (onResultReceived) {
-                onResultReceived(newResult);
+              // Track progress - only add result if provided (backend may not send it during progress)
+              if (message.result) {
+                const newResult = {
+                  ...message.result,
+                  id: Math.random(),
+                  score: message.result?.score ?? message.result?.final_score,
+                };
+                setResults((prev) => {
+                  const next = [...prev, newResult];
+                  resultsRef.current = next;
+                  return next;
+                });
+                if (onResultReceived) {
+                  onResultReceived(newResult);
+                }
               }
+              // Progress increases as files are completed
+              // Calculate as: (message.completed_files / message.total_files) * 100, but cap at 99%
+              // We only show 100% when all_completed event arrives
+              const progressPercent = Math.min(99, (message.completed_files / message.total_files) * 100);
               setProgress({
                 event: 'completed',
-                total_pairs: message.total_pairs,
-                current_pair: message.current_pair,
+                total_files: message.total_files,
+                completed_files: message.completed_files,
                 current_resume: message.current_resume,
                 current_jd: message.current_jd,
-                progress_percent: message.progress_percent
+                progress_percent: progressPercent
               });
             } else if (message.event === 'error') {
               setError(message.error || 'Unknown error occurred');
               setProgress({
                 event: 'error',
-                total_pairs: message.total_pairs,
-                current_pair: message.current_pair,
+                total_files: message.total_files,
+                completed_files: message.completed_files,
                 current_resume: message.current_resume,
                 current_jd: message.current_jd,
-                error: message.error
+                error: message.error,
+                progress_percent: (message.completed_files / message.total_files) * 100
               });
             } else if (message.event === 'all_completed') {
-              console.log('[RealtimeScoring] FINAL RESULTS:', message.results);
+              // All results are ready and saved to DB - NOW show 100%
+              console.log('[RealtimeScoring] ALL COMPLETED - Results ready from DB:', message.results);
               const finalResults = Array.isArray(message.results)
-                ? message.results
+                ? message.results.map((result) => ({
+                    ...result,
+                    score: result?.score ?? result?.final_score,
+                  }))
                 : resultsRef.current;
               setResults(finalResults);
               resultsRef.current = finalResults;
               setProgress({
                 event: 'all_completed',
+                total_files: message.total_files,
+                completed_files: message.completed_files,
+                current_resume: '',
+                current_jd: '',
+                progress_percent: 100.0,
                 total_results: message.total_results,
-                results: finalResults
               });
               resolve({
                 results: finalResults,

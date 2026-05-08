@@ -21,10 +21,9 @@ function ProgressIndicator({ progress, isVisible = true }) {
 
   const statusMessages = {
     'started': 'Starting scoring process...',
-    'processing': `Processing ${progress.current_resume} against ${progress.current_jd}`,
-    'completed': `Completed: ${progress.current_resume} vs ${progress.current_jd}`,
+    'completed': `Processing: ${progress.current_resume || 'resume'} against ${progress.current_jd || 'job description'}`,
+    'all_completed': 'All scoring completed and results saved!',
     'error': `Error: ${formatErrorForDisplay(progress.error, 'Unknown error')}`,
-    'all_completed': 'All scoring completed!'
   };
 
   return (
@@ -52,22 +51,22 @@ function ProgressIndicator({ progress, isVisible = true }) {
 
         <div className="progress-details">
           <div className="detail-row">
-            <span className="detail-label">Pair:</span>
+            <span className="detail-label">Files Completed:</span>
             <span className="detail-value">
-              {progress.current_pair} / {progress.total_pairs}
+              {progress.completed_files} / {progress.total_files}
             </span>
           </div>
           
           {progress.current_resume && (
             <div className="detail-row">
-              <span className="detail-label">Resume:</span>
+              <span className="detail-label">Current Resume:</span>
               <span className="detail-value detail-ellipsis">{progress.current_resume}</span>
             </div>
           )}
           
           {progress.current_jd && (
             <div className="detail-row">
-              <span className="detail-label">JD:</span>
+              <span className="detail-label">Current JD:</span>
               <span className="detail-value detail-ellipsis">{progress.current_jd}</span>
             </div>
           )}

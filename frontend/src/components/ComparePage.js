@@ -73,6 +73,18 @@ function ComparePage({ history = [], token }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const resumeOptions = useMemo(() => {
+    const byName = new Map();
+    history.forEach((row) => {
+      const existing = byName.get(row.resume_name);
+      // Keep record with higher score, or if equal, keep the more recent (higher ID)
+      if (!existing || row.final_score > existing.final_score || (row.final_score === existing.final_score && row.id > existing.id)) {
+        byName.set(row.resume_name, row);
+      }
+    });
+    return Array.from(byName.values());
+  }, [history]);
+
   const jdOptions = useMemo(() => {
     const unique = new Map();
     history.forEach((row) => {
@@ -160,7 +172,7 @@ function ComparePage({ history = [], token }) {
           <div>
             <h4>Resume Selection</h4>
             <div className="compare-list">
-              {history.map((row) => (
+              {resumeOptions.map((row) => (
                 <label key={row.id} className="compare-item">
                   <input
                     type="checkbox"

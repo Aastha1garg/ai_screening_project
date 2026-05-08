@@ -129,6 +129,9 @@ _NON_SKILL_BLOCKLIST = {
     "monday", "tuesday", "wednesday", "thursday", "friday", "week", "month", "day", "days",
     "january", "february", "march", "april", "may", "june", "july", "august", "september",
     "october", "november", "december",
+    # PDF and binary artifact filters
+    "stream", "length", "endstream", "obj", "xref", "trailer", "eof", "pdf", "binary",
+    "endobj", "startxref", "deflate", "flatedecode", "ascii85decode", "asciihexdecode",
 }
 
 _CERTIFICATION_TRIGGER = re.compile(
@@ -411,6 +414,34 @@ def _is_likely_skill_token(
     return False
 
 
+def _is_pdf_artifact(skill: str) -> bool:
+    """Check if a skill token is a PDF artifact or binary marker."""
+    lower = skill.lower().strip()
+    
+    # Direct PDF keywords
+    pdf_keywords = {
+        "stream", "length", "endstream", "obj", "xref", "trailer", "eof", 
+        "pdf", "binary", "endobj", "startxref", "deflate", "flatedecode", 
+        "ascii85decode", "asciihexdecode",
+    }
+    if lower in pdf_keywords:
+        return True
+    
+    # PDF object references like /F1, /F2, /Type, /Page
+    if lower.startswith("/") and (lower[1:].isalnum() or len(lower) <= 4):
+        return True
+    
+    # Hex strings like "<4D5A>" or "<0000>"
+    if lower.startswith("<") and lower.endswith(">"):
+        return True
+    
+    # Numeric object references like "1 0 R"
+    if re.match(r"^\d+\s+\d+\s+[Rr]$", skill.strip()):
+        return True
+    
+    return False
+
+
 def _matcher_skill_hits(text: str, synonyms: Dict[str, List[str]]) -> Set[str]:
     found: Set[str] = set()
     matcher = get_skill_phrase_matcher(synonyms)
@@ -511,6 +542,9 @@ def extract_skills(
     if source == "jd":
         filtered: Set[str] = set()
         for s in raw:
+            # Filter out PDF artifacts
+            if _is_pdf_artifact(s):
+                continue
             tokens = s.lower().split()
             if any(_is_likely_skill_token(t, alias_map, stopwords, tech_lex) for t in tokens):
                 filtered.add(s)
@@ -537,6 +571,9 @@ def extract_skills(
         return False
 
     for s in raw:
+        # Filter out PDF artifacts
+        if _is_pdf_artifact(s):
+            continue
         sl = s.lower()
         if sl in tech_lex or s in matcher_hits_resume:
             out.add(s)
@@ -555,12 +592,13 @@ def extract_skills(
             if not piece or len(piece) > 48:
                 continue
             skill = _normalize_skill_phrase(piece, alias_map, stopwords)
-            if skill and (
-                skill.lower() in tech_lex
-                or _jd_overlap(skill)
-                or _is_likely_skill_token(skill.lower(), alias_map, stopwords, tech_lex)
-            ):
-                out.add(skill)
+            if skill and not _is_pdf_artifact(skill):
+                if (
+                    skill.lower() in tech_lex
+                    or _jd_overlap(skill)
+                    or _is_likely_skill_token(skill.lower(), alias_map, stopwords, tech_lex)
+                ):
+                    out.add(skill)
 
     # Exclude certification keywords to avoid mixing
     cert_keywords_lower = {k.lower() for k in CERT_KEYWORDS}

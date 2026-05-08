@@ -15,6 +15,18 @@ function ExplainPage({ history = [], token }) {
     }
   }, [history, resumeId]);
 
+  const resumeOptions = useMemo(() => {
+    const byName = new Map();
+    history.forEach((item) => {
+      const existing = byName.get(item.resume_name);
+      // Keep record with higher score, or if equal, keep the more recent (higher ID)
+      if (!existing || item.final_score > existing.final_score || (item.final_score === existing.final_score && item.id > existing.id)) {
+        byName.set(item.resume_name, item);
+      }
+    });
+    return Array.from(byName.values());
+  }, [history]);
+
   const jdOptions = useMemo(() => {
     const byName = new Map();
     history.forEach((item) => {
@@ -70,7 +82,7 @@ function ExplainPage({ history = [], token }) {
         <div className="filter-grid">
           <select value={resumeId} onChange={(e) => setResumeId(e.target.value)}>
             <option value="">Select Resume</option>
-            {history.map((item) => (
+            {resumeOptions.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.resume_name}
               </option>

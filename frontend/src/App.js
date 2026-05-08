@@ -36,6 +36,30 @@ function dedupeFiles(existingFiles, nextFiles) {
   return merged;
 }
 
+function deduplicateResultsByFilename(items) {
+  /**
+   * Remove duplicate resume rows by resume_name + jd_name combination.
+   * Keeps the result with the highest ID (most recent) for each unique combination.
+   */
+  const seen = new Map(); // Key: "resume_name||jd_name", Value: { item, maxId }
+  
+  items.forEach((item) => {
+    const key = `${item.resume_name}||${item.jd_name}`;
+    const itemId = Number(item.id) || 0;
+    
+    if (!seen.has(key)) {
+      seen.set(key, { item, maxId: itemId });
+    } else {
+      const existing = seen.get(key);
+      if (itemId > existing.maxId) {
+        seen.set(key, { item, maxId: itemId });
+      }
+    }
+  });
+  
+  return Array.from(seen.values()).map((entry) => entry.item);
+}
+
 function groupResultsByJD(items) {
   const groups = {};
   items.forEach((item) => {
@@ -205,9 +229,11 @@ function App() {
     try {
       const res = await apiClient.get("/history/results");
       const historyRows = Array.isArray(res.data) ? res.data : [];
-      setResults(historyRows);
-      setGroupedResults(groupResultsByJD(historyRows));
-      return historyRows;
+      // Deduplicate results by resume_name + jd_name, keeping latest
+      const deduplicatedRows = deduplicateResultsByFilename(historyRows);
+      setResults(deduplicatedRows);
+      setGroupedResults(groupResultsByJD(deduplicatedRows));
+      return deduplicatedRows;
     } catch (err) {
       if (err?.response?.status === 401) {
         handleAuthFailure();
@@ -284,8 +310,14 @@ function App() {
     const res = await apiClient.post("/upload", formData);
     const groups = Array.isArray(res.data?.results) ? res.data.results : [];
     if (groups.length && groups[0]?.candidates) {
-      setGroupedResults(groups);
-      setResults(groups.flatMap((group) => group.candidates || []));
+      // Flatten grouped results and deduplicate by filename
+      const allResults = groups.flatMap((group) => group.candidates || []);
+      const deduplicatedResults = deduplicateResultsByFilename(allResults);
+      
+      // Group the deduplicated results
+      const groupedDeduped = groupResultsByJD(deduplicatedResults);
+      setGroupedResults(groupedDeduped);
+      setResults(deduplicatedResults);
     }
     await refreshHistory();
     await refreshNotifications();
@@ -356,14 +388,18 @@ function App() {
           const finalResults = Array.isArray(resultPayload?.results) ? resultPayload.results : [];
 
           if (finalResults.length > 0) {
-            setResults(finalResults);
-            setGroupedResults(groupResultsByJD(finalResults));
-            setRealtimeResults(finalResults);
+            // Deduplicate real-time results by filename
+            const deduplicatedResults = deduplicateResultsByFilename(finalResults);
+            setResults(deduplicatedResults);
+            setGroupedResults(groupResultsByJD(deduplicatedResults));
+            setRealtimeResults(deduplicatedResults);
           }
 
-          // After real-time scoring completes, refresh history and process results
-          await new Promise(resolve => setTimeout(resolve, 500)); // Brief delay for DB writes
-          await refreshHistory();
+          // Refresh history in background WITHOUT blocking (fire and forget)
+          // Results are already displayed to user, DB sync is non-critical
+          refreshHistory().catch((err) => {
+            console.warn("Background history refresh failed:", err);
+          });
         } catch (err) {
           console.log("Realtime upload failed, falling back to REST upload", err);
           // WebSocket unavailable; silently fall back to REST upload
@@ -460,7 +496,7 @@ function App() {
   const parsedRows = useMemo(
     () =>
       (results || []).map((item) => {
-        const numericScore = Number(item.score) || 0;
+        const numericScore = Number(item.score ?? item.final_score) || 0;
         return {
           historyId: Number(item.id),
           name: item.resume_name || "Unknown Candidate",
