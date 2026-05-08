@@ -26,15 +26,12 @@ async def stream_resume_screening(
     callback: Callable[[ScoringProgress], Any],  # Called for each progress update
 ) -> List[Dict[str, Any]]:
     """
-    Process resumes incrementally and stream results via callback - OPTIMIZED FOR SPEED.
+    Process resumes sequentially and stream results via callback.
     
-    Performance optimizations:
-    - asyncio.as_completed() for immediate result processing (faster than wait())
-    - Max 16 workers for aggressive parallelization
-    - Direct resume index tracking (O(1) instead of O(n) per result)
-    - Results streamed immediately as they complete
-    - Minimal progress callback overhead
-    - JDs cached via utils.get_jd_embedding() (processed once per session)
+    Uses the same scoring pipeline as traditional upload for consistency.
+    Processes each resume with all JDs sequentially to ensure stable progress updates.
+    Sends live updates after each resume completes.
+    Prevents duplicate/coroutine issues.
     
     Args:
         resumes: List of (name, text) tuples
@@ -49,110 +46,109 @@ async def stream_resume_screening(
     total_pairs = len(resumes) * len(jds)
     all_results = []
     
-    # Track which resumes are fully processed using simple index-based tracking
-    jds_per_resume = len(jds)
-    results_per_resume = [0] * total_files  # Count results for each resume index
+    if total_files == 0:
+        try:
+            await callback(ScoringProgress(
+                event="all_completed",
+                total_files=0,
+                completed_files=0,
+                current_resume="",
+                current_jd="",
+                progress_percent=100.0
+            ))
+        except Exception as e:
+            print(f"Error sending all_completed event: {e}")
+        return []
+    
     completed_files = 0
 
     # Send start event
-    await callback(ScoringProgress(
-        event="started",
-        total_files=total_files,
-        completed_files=0,
-        current_resume="",
-        current_jd="",
-        progress_percent=0.0
-    ))
+    try:
+        await callback(ScoringProgress(
+            event="started",
+            total_files=total_files,
+            completed_files=0,
+            current_resume="",
+            current_jd="",
+            progress_percent=0.0
+        ))
+    except Exception as e:
+        print(f"Error sending started event: {e}")
 
     loop = asyncio.get_running_loop()
-    # Aggressive parallelization: up to 16 workers for faster processing
-    max_workers = min(16, total_pairs or 1)
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Create all futures for parallel processing
-        futures_to_task = {}
-        for resume_idx, (resume_name, resume_text) in enumerate(resumes):
-            for jd_idx, (jd_name, jd_text) in enumerate(jds):
-                future = loop.run_in_executor(
-                    executor,
-                    run_resume_screening,
-                    resume_text,
-                    jd_text,
-                    template_text,
-                )
-                futures_to_task[future] = {
-                    'resume_name': resume_name,
-                    'resume_text': resume_text,
-                    'jd_name': jd_name,
-                    'jd_text': jd_text,
-                    'resume_idx': resume_idx,
-                }
+    # Sequential processing ensures stability for real-time mode while still using the same scoring pipeline.
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        for resume_name, resume_text in resumes:
+            for jd_name, jd_text in jds:
+                try:
+                    # Add traceback logging for debugging
+                    import traceback
+                    result = await loop.run_in_executor(
+                        executor,
+                        run_resume_screening,
+                        resume_text,
+                        jd_text,
+                        template_text,
+                    )
+                except Exception as e:
+                    error_msg = f"Server processing error: {str(e)}"
+                    print(f"Error processing resume '{resume_name}' with JD '{jd_name}': {e}")
+                    print("Traceback:")
+                    traceback.print_exc()
+                    try:
+                        await callback(ScoringProgress(
+                            event="error",
+                            total_files=total_files,
+                            completed_files=completed_files,
+                            current_resume=resume_name or "",
+                            current_jd=jd_name or "",
+                            error=error_msg,
+                            progress_percent=float(completed_files) / float(total_files) * 100.0 if total_files else 0.0,
+                        ))
+                    except Exception as cb_err:
+                        print(f"Error sending error callback: {cb_err}")
+                    raise
 
-        # Process results immediately as they complete (much faster than waiting for batches)
-        for future in asyncio.as_completed(futures_to_task.keys()):
-            task = futures_to_task[future]
-            
-            try:
-                # FIXED: Properly await the future to get the actual result
-                result = await future
-                
-                # Attach metadata
-                result["score"] = result["final_score"]
-                result["resume_name"] = task['resume_name']
-                result["jd_name"] = task['jd_name']
-                result["resume_text"] = task['resume_text']
-                result["jd_text"] = task['jd_text']
-                
+                result["score"] = result.get("final_score", 0)
+                result["resume_name"] = resume_name
+                result["jd_name"] = jd_name
+                result["resume_text"] = resume_text
+                result["jd_text"] = jd_text
+
                 all_results.append(result)
-                
-                # Fast O(1) resume completion tracking using index
-                resume_idx = task['resume_idx']
-                results_per_resume[resume_idx] += 1
-                
-                if results_per_resume[resume_idx] == jds_per_resume:
-                    # This resume just completed all its JD comparisons
-                    completed_files += 1
-                
-                # Calculate progress: cap at 99% until all_completed event
-                progress_percent = min(99.0, (completed_files / total_files) * 100.0)
-                
-                # Send progress update (WITHOUT the large result object)
-                # Result will only be sent in final all_completed message
+
+            completed_files += 1
+            try:
+                progress_percent = float(completed_files) / float(total_files) * 100.0 if total_files else 0.0
+            except (ValueError, TypeError, ZeroDivisionError):
+                progress_percent = 0.0
+
+            if progress_percent != progress_percent:  # NaN check
+                progress_percent = 0.0
+
+            try:
                 await callback(ScoringProgress(
                     event="completed",
                     total_files=total_files,
                     completed_files=completed_files,
-                    current_resume=task['resume_name'],
-                    current_jd=task['jd_name'],
-                    result=None,  # FIXED: Don't send result in progress updates (too large, not serializable)
-                    progress_percent=progress_percent
+                    current_resume=resume_name or "",
+                    current_jd="",
+                    progress_percent=min(100.0, max(0.0, progress_percent)),
                 ))
-                
-            except Exception as e:
-                # FIXED: Extract clean error message string, not exception object
-                error_msg = str(e).strip()
-                if not error_msg:
-                    error_msg = f"{type(e).__name__}"
-                
-                await callback(ScoringProgress(
-                    event="error",
-                    total_files=total_files,
-                    completed_files=completed_files,
-                    current_resume=task['resume_name'],
-                    current_jd=task['jd_name'],
-                    error=error_msg,
-                    progress_percent=(completed_files / total_files) * 100.0
-                ))
+            except Exception as cb_err:
+                print(f"Error sending progress callback: {cb_err}")
 
-    # Send completion signal with 100% progress (all scoring + DB done)
-    await callback(ScoringProgress(
-        event="all_completed",
-        total_files=total_files,
-        completed_files=total_files,
-        current_resume="",
-        current_jd="",
-        progress_percent=100.0
-    ))
+    try:
+        await callback(ScoringProgress(
+            event="all_completed",
+            total_files=total_files,
+            completed_files=total_files,
+            current_resume="",
+            current_jd="",
+            progress_percent=100.0
+        ))
+    except Exception as e:
+        print(f"Error sending all_completed event: {e}")
 
     return all_results
 
@@ -161,21 +157,51 @@ def serialize_scoring_progress(progress: ScoringProgress) -> str:
     """
     Serialize progress message to JSON for WebSocket transmission.
     FIXED: Only serializes JSON-compatible fields, excludes complex result objects.
+    Ensures NO coroutine objects or non-JSON-serializable data is sent.
     """
-    data = {
-        "event": progress.event,
-        "total_files": progress.total_files,
-        "completed_files": progress.completed_files,
-        "current_resume": progress.current_resume or "",
-        "current_jd": progress.current_jd or "",
-        "progress_percent": float(progress.progress_percent),
-    }
-    
-    # Only include error if present
-    if progress.error:
-        data["error"] = str(progress.error)
-    
-    # FIXED: Don't serialize result here - it's included separately in final message
-    # This prevents coroutine objects or non-serializable data from being sent
-    
-    return json.dumps(data)
+    try:
+        # Ensure all fields are proper types before serialization
+        total_files = int(progress.total_files) if progress.total_files is not None else 0
+        completed_files = int(progress.completed_files) if progress.completed_files is not None else 0
+        
+        # Safely convert progress_percent to float, preventing NaN
+        try:
+            progress_percent = float(progress.progress_percent)
+            if not (-1e10 < progress_percent < 1e10) or progress_percent != progress_percent:  # NaN check
+                progress_percent = 0.0
+        except (ValueError, TypeError):
+            progress_percent = 0.0
+        
+        data = {
+            "event": str(progress.event) if progress.event else "unknown",
+            "total_files": total_files,
+            "completed_files": completed_files,
+            "current_resume": str(progress.current_resume or "") if progress.current_resume else "",
+            "current_jd": str(progress.current_jd or "") if progress.current_jd else "",
+            "progress_percent": progress_percent,
+        }
+        
+        # Only include error if present and is a string
+        if progress.error:
+            error_str = str(progress.error)
+            # Remove any coroutine object representations
+            if "<coroutine" in error_str:
+                error_str = "Server processing error"
+            data["error"] = error_str
+        
+        # FIXED: Don't serialize result here - it's included separately in final message
+        # This prevents coroutine objects or non-serializable data from being sent
+        
+        return json.dumps(data)
+    except Exception as serialize_err:
+        # Fallback: return minimal valid JSON if anything fails
+        print(f"Error serializing progress: {serialize_err}")
+        return json.dumps({
+            "event": "error",
+            "total_files": 0,
+            "completed_files": 0,
+            "current_resume": "",
+            "current_jd": "",
+            "progress_percent": 0.0,
+            "error": "Serialization error"
+        })

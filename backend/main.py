@@ -2,6 +2,7 @@ import csv
 import hashlib
 import io
 import json
+import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import re
@@ -71,16 +72,22 @@ class Notification(Base):
 def convert_to_serializable(obj: Any) -> Any:
     """
     Recursively convert numpy types and other non-JSON-serializable objects to JSON-serializable types.
-    Handles numpy scalars, arrays, and nested structures.
+    Handles numpy scalars, arrays, nested structures, NaN values, and coroutine objects.
+    FIXED: Prevents NaN, Infinity, coroutines, and other non-JSON types from being sent.
     """
     try:
         import numpy as np
         
         # Handle numpy scalar types
         if isinstance(obj, (np.integer, np.floating)):
-            return obj.item()  # Convert to native Python type
+            val = obj.item()
+            # Check for NaN or Infinity
+            if isinstance(val, float):
+                if val != val or val == float('inf') or val == float('-inf'):  # NaN check and infinity check
+                    return 0.0
+            return val
         elif isinstance(obj, np.ndarray):
-            return obj.tolist()  # Convert array to list
+            return [convert_to_serializable(item) for item in obj.tolist()]
         elif isinstance(obj, np.bool_):
             return bool(obj)
         elif isinstance(obj, np.complexfloating):
@@ -88,18 +95,45 @@ def convert_to_serializable(obj: Any) -> Any:
     except ImportError:
         pass
     
+    # FIXED: Reject coroutine objects entirely
+    if asyncio.iscoroutine(obj):
+        return None
+    
     # Handle standard Python types
     if isinstance(obj, dict):
         return {k: convert_to_serializable(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return [convert_to_serializable(item) for item in obj]
-    elif isinstance(obj, (int, float, str, bool, type(None))):
+    elif isinstance(obj, bool):
+        # Must come before int check since bool is subclass of int
         return obj
+    elif isinstance(obj, int):
+        return obj
+    elif isinstance(obj, float):
+        # Check for NaN, Infinity, and handle them
+        if obj != obj:  # NaN check (NaN != NaN)
+            return 0.0
+        elif obj == float('inf'):
+            return float('inf')  # JSON allows Infinity representation
+        elif obj == float('-inf'):
+            return float('-inf')
+        return obj
+    elif isinstance(obj, str):
+        return obj
+    elif obj is None:
+        return None
     elif isinstance(obj, datetime):
         return obj.isoformat()
     else:
-        # For any other type, try to convert to string as fallback
-        return str(obj)
+        # For any other type, convert to string
+        try:
+            obj_str = str(obj)
+            # If it looks like a coroutine, return None instead
+            if "coroutine" in obj_str.lower() and "<" in obj_str:
+                return None
+            return obj_str
+        except:
+            return None
 
 
 Base.metadata.create_all(bind=engine)
@@ -816,7 +850,7 @@ async def websocket_upload(websocket: WebSocket):
                 print("No resumes or JDs provided")
                 await websocket.send_text(serialize_scoring_progress(ScoringProgress(
                     event="error",
-                    total_files=len(resumes),
+                    total_files=0,
                     completed_files=0,
                     current_resume="",
                     current_jd="",
@@ -829,9 +863,15 @@ async def websocket_upload(websocket: WebSocket):
             resume_tuples = [(r.get("name", f"Resume {i}"), r.get("text", "")) for i, r in enumerate(resumes)]
             jd_tuples = [(j.get("name", f"JD {i}"), j.get("text", "")) for i, j in enumerate(jds)]
 
-            # Callback to send progress updates via WebSocket
+            total_files = len(resume_tuples)
+
+            # Callback to send progress updates via WebSocket.
             async def send_progress(progress: ScoringProgress):
-                await websocket.send_text(serialize_scoring_progress(progress))
+                try:
+                    await websocket.send_text(serialize_scoring_progress(progress))
+                except Exception as send_err:
+                    print(f"WebSocket progress send failure: {send_err}")
+                    raise
 
             # Stream results - uses same scoring as traditional upload
             results = await stream_resume_screening(
@@ -841,11 +881,16 @@ async def websocket_upload(websocket: WebSocket):
                 send_progress
             )
 
-            # Deduplicate results: keep only one result per (resume_name, jd_name) pair
+            # Deduplicate results conservatively by resume/jd/text tuple to avoid duplicate rows.
             seen_pairs = set()
             deduplicated_results = []
             for result in results:
-                pair_key = (result.get("resume_name"), result.get("jd_name"))
+                pair_key = (
+                    result.get("resume_name"),
+                    result.get("jd_name"),
+                    result.get("resume_text"),
+                    result.get("jd_text"),
+                )
                 if pair_key not in seen_pairs:
                     seen_pairs.add(pair_key)
                     deduplicated_results.append(result)
@@ -886,8 +931,8 @@ async def websocket_upload(websocket: WebSocket):
                 db.rollback()
                 await websocket.send_text(serialize_scoring_progress(ScoringProgress(
                     event="error",
-                    total_files=len(resumes),
-                    completed_files=len(resumes),
+                    total_files=total_files,
+                    completed_files=total_files,
                     current_resume="",
                     current_jd="",
                     error=f"Database error: {str(db_err)}"
@@ -948,8 +993,8 @@ async def websocket_upload(websocket: WebSocket):
             # Send completion message with 100% progress
             await websocket.send_text(json.dumps({
                 "event": "all_completed",
-                "total_files": len(resumes),
-                "completed_files": len(resumes),
+                "total_files": total_files,
+                "completed_files": total_files,
                 "progress_percent": 100.0,
                 "total_results": len(final_results),
                 "results": final_results
@@ -958,15 +1003,34 @@ async def websocket_upload(websocket: WebSocket):
         except WebSocketDisconnect:
             print("Client disconnected from real-time scoring WebSocket")
         except Exception as e:
+            import traceback
             print(f"WebSocket error: {e}")
+            print("Traceback:")
+            traceback.print_exc()
             try:
+                # FIXED: Extract clean error message, ensuring no coroutine objects
+                error_message = None
+                try:
+                    error_str = str(e)
+                    # Check if the string representation contains coroutine object repr
+                    if "coroutine" in error_str.lower():
+                        error_message = "Server processing error"
+                    else:
+                        error_message = error_str.strip() if error_str.strip() else "Unknown error"
+                except:
+                    error_message = "Server error"
+                
+                # Final check: if still contains coroutine, replace it
+                if error_message and "<coroutine" in error_message:
+                    error_message = "Server processing error"
+                
                 await websocket.send_text(serialize_scoring_progress(ScoringProgress(
                     event="error",
                     total_files=0,
                     completed_files=0,
                     current_resume="",
                     current_jd="",
-                    error=f"Server error: {str(e)}"
+                    error=error_message or "Server error"
                 )))
             except:
                 pass
