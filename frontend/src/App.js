@@ -343,7 +343,21 @@ function App() {
     try {
       // Use real-time scoring if enabled
       if (useRealtimeMode) {
-        // Read files as text for WebSocket
+        const readFileAsBase64 = (file) =>
+          new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result;
+              if (typeof result !== 'string') {
+                return reject(new Error('Failed to read file content'));
+              }
+              const parts = result.split(',');
+              resolve(parts.length > 1 ? parts[1] : '');
+            };
+            reader.onerror = () => reject(new Error('Failed to read file content'));
+            reader.readAsDataURL(file);
+          });
+
         const readFileSafe = async (file) => {
           try {
             const text = await file.text();
@@ -360,23 +374,29 @@ function App() {
 
         const resumeTexts = [];
         for (const file of uploadResumes) {
-          const text = await readFileSafe(file);
+          const [content_base64, text] = await Promise.all([
+            readFileAsBase64(file),
+            readFileSafe(file),
+          ]);
           resumeTexts.push({
             name: file.name,
-            text: text && text.length > 10 ? text : "sample resume text"
+            content_base64,
+            text: text && text.length > 10 ? text : `Sample content from ${file.name}`,
           });
         }
 
         const jdTexts = [];
         for (const file of uploadJds) {
-          const text = await readFileSafe(file);
+          const [content_base64, text] = await Promise.all([
+            readFileAsBase64(file),
+            readFileSafe(file),
+          ]);
           jdTexts.push({
             name: file.name,
-            text: text && text.length > 10 ? text : "sample jd text"
+            content_base64,
+            text: text && text.length > 10 ? text : `Sample content from ${file.name}`,
           });
         }
-
-      
 
         const templateText = uploadTemplate ? await uploadTemplate.text() : '';
         console.log("Sending:", resumeTexts, jdTexts);

@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import asyncio
+from base64 import b64decode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import re
@@ -32,7 +33,7 @@ from auth import (
     ALGORITHM,
     SessionLocal,
 )
-from format_checker import analyze_resume_format, detect_sections, read_upload_file
+from format_checker import analyze_resume_format, detect_sections, extract_text, read_upload_file
 from ai_feedback import generate_ai_feedback, generate_resume_improvement
 from scoring import run_resume_screening
 from realtime_scoring import stream_resume_screening, serialize_scoring_progress, ScoringProgress
@@ -600,6 +601,58 @@ def _score_resume_jd_pair(
     }
 
 
+def _prepare_ws_documents(items: list, item_type: str) -> List[tuple[str, str]]:
+    prepared = []
+    for idx, item in enumerate(items or []):
+        name = str(item.get("name") or f"{item_type.capitalize()} {idx + 1}")
+        content_base64 = item.get("content_base64")
+        text = item.get("text", "") or ""
+
+        if isinstance(content_base64, str) and content_base64.strip():
+            try:
+                raw_bytes = b64decode(content_base64)
+                text = extract_text(name, raw_bytes)
+            except Exception as e:
+                raise ValueError(f"{name}: failed to extract text from uploaded content. {str(e)}") from e
+
+        if not isinstance(text, str):
+            raise ValueError(f"{name}: invalid text payload")
+
+        text = text.strip()
+        if not text:
+            raise ValueError(f"{name}: extracted text is empty")
+
+        prepared.append((name, text))
+    return prepared
+
+
+def _is_pdf_artifact_skill(skill: str) -> bool:
+    if not isinstance(skill, str):
+        return True
+    token = skill.strip().lower()
+    if not token:
+        return True
+
+    pdf_tokens = {
+        "pdf", "pdf-1.4", "stream", "length", "endstream", "obj", "xref",
+        "trailer", "eof", "endobj", "startxref", "deflate", "flatedecode",
+        "ascii85decode", "asciihexdecode",
+    }
+    if token in pdf_tokens:
+        return True
+    if token.startswith("/") and token[1:].isalnum():
+        return True
+    if token.startswith("<") and token.endswith(">"):
+        return True
+    if re.match(r"^\d+\s+\d+\s+[Rr]$", token):
+        return True
+    return False
+
+
+def _clean_skill_list(skills: list) -> list:
+    return [s for s in (skills or []) if isinstance(s, str) and s.strip() and not _is_pdf_artifact_skill(s)]
+
+
 @app.post("/upload", response_model=UploadResponse)
 async def upload_resume(
     resumes: List[UploadFile] = File(...),
@@ -786,8 +839,8 @@ async def websocket_upload(websocket: WebSocket):
     
     Expected incoming message format:
     {
-        "resumes": [{"name": "resume1.pdf", "text": "..."}, ...],
-        "jds": [{"name": "jd1.pdf", "text": "..."}, ...],
+        "resumes": [{"name": "resume1.pdf", "content_base64": "...", "text": "..."}, ...],
+        "jds": [{"name": "jd1.pdf", "content_base64": "...", "text": "..."}, ...],
         "template": "optional template text"
     }
     
@@ -859,9 +912,23 @@ async def websocket_upload(websocket: WebSocket):
                 await websocket.close(code=1008)
                 return
 
-            # Prepare resume and JD tuples
-            resume_tuples = [(r.get("name", f"Resume {i}"), r.get("text", "")) for i, r in enumerate(resumes)]
-            jd_tuples = [(j.get("name", f"JD {i}"), j.get("text", "")) for i, j in enumerate(jds)]
+            # Prepare resume and JD tuples using the same backend extraction pipeline as traditional upload.
+            try:
+                resume_tuples = _prepare_ws_documents(resumes, "resume")
+                jd_tuples = _prepare_ws_documents(jds, "jd")
+            except ValueError as prep_err:
+                error_msg = str(prep_err)
+                print(f"WebSocket payload preparation error: {error_msg}")
+                await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                    event="error",
+                    total_files=0,
+                    completed_files=0,
+                    current_resume="",
+                    current_jd="",
+                    error=error_msg
+                )))
+                await websocket.close(code=1008)
+                return
 
             total_files = len(resume_tuples)
 
@@ -958,19 +1025,23 @@ async def websocket_upload(websocket: WebSocket):
             # Build final results for client (minimal format, only needed fields)
             final_results = []
             for result in deduplicated_results:
+                experience_data = result.get("experience", {}) or {}
                 result_dict = {
                     "resume_name": result.get("resume_name", ""),
                     "jd_name": result.get("jd_name", ""),
                     "resume_text": result.get("resume_text", ""),
                     "jd_text": result.get("jd_text", ""),
                     "score": result.get("final_score", 0),
+                    "final_score": result.get("final_score", 0),
                     "skill_score": result.get("skill_score", 0),
+                    "skill_match": result.get("skill_score", 0),
                     "format_score": float(result.get("format_check", {}).get("format_score", 0)),
-                    "matched_skills": result.get("matched_skills", []),
-                    "missing_skills": result.get("missing_skills", []),
+                    "matched_skills": _clean_skill_list(result.get("matched_skills", [])),
+                    "missing_skills": _clean_skill_list(result.get("missing_skills", [])),
                     "extra_skills": result.get("extra_skills", []),
                     "partial_matches": result.get("partial_matches", []),
-                    "experience": result.get("experience", {}),
+                    "experience": experience_data,
+                    "relevant_experience": float(experience_data.get("relevant_years", 0) or 0),
                     "education": result.get("education", []),
                     "required_education": result.get("required_education", []),
                     "certifications_all": result.get("certifications_all", result.get("certifications", [])),

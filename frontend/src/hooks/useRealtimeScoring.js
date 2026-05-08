@@ -69,15 +69,13 @@ export function useRealtimeScoring(onResultReceived, authToken) {
           ws.send(JSON.stringify({
             resumes: resumes.map((r) => ({
                 name: r.name || 'Unknown Resume',
-                text: r.text && r.text.length > 20 
-                ? r.text 
-                : `Sample resume content for ${r.name}`
+                content_base64: r.content_base64 || undefined,
+                text: r.text && r.text.length > 20 ? r.text : `Sample resume content for ${r.name}`,
             })),
             jds: jds.map((j) => ({
                 name: j.name || 'Unknown JD',
-                text: j.text && j.text.length > 20 
-                ? j.text 
-                : `Sample JD content for ${j.name}`
+                content_base64: j.content_base64 || undefined,
+                text: j.text && j.text.length > 20 ? j.text : `Sample JD content for ${j.name}`,
             })),
             template: template || "Sample template"
             }));
