@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { formatEducationList } from "../formatEducation";
+import { motion } from "framer-motion";
 import {
   Bar,
   BarChart,
@@ -94,7 +95,12 @@ function AnalyticsDashboard({ rows }) {
 
   return (
     <div className="dashboard-content">
-      <section className="card chart-card">
+      <motion.section 
+        className="card chart-card"
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5 }}
+      >
         <h3>Experience Section</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={experienceData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
@@ -107,9 +113,14 @@ function AnalyticsDashboard({ rows }) {
             <Bar dataKey="relevantExperience" name="Relevant Experience" fill="#22c55e" radius={[8, 8, 0, 0]} isAnimationActive={true} />
           </BarChart>
         </ResponsiveContainer>
-      </section>
+      </motion.section>
 
-      <section className="card chart-card">
+      <motion.section 
+        className="card chart-card"
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+      >
         <h3>Certification Section</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={certificationData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
@@ -123,9 +134,14 @@ function AnalyticsDashboard({ rows }) {
             <Bar dataKey="extra" stackId="certs" name="Extra" fill="#f59e0b" isAnimationActive={true} />
           </BarChart>
         </ResponsiveContainer>
-      </section>
+      </motion.section>
 
-      <section className="card chart-card">
+      <motion.section 
+        className="card chart-card"
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+      >
         <h3>Skill Section</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={skillData} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
@@ -139,9 +155,14 @@ function AnalyticsDashboard({ rows }) {
             <Bar dataKey="extra" stackId="skills" name="Extra" fill="#f59e0b" isAnimationActive={true} />
           </BarChart>
         </ResponsiveContainer>
-      </section>
+      </motion.section>
 
-      <section className="card">
+      <motion.section 
+        className="card"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.3 }}
+      >
         <h3>Per Resume Insights</h3>
         <table className="table">
           <thead>
@@ -152,6 +173,7 @@ function AnalyticsDashboard({ rows }) {
               <th>Experience</th>
               <th>Education</th>
               <th>Certifications</th>
+              <th>Format Match</th>
               <th>Final Score</th>
             </tr>
           </thead>
@@ -165,17 +187,27 @@ function AnalyticsDashboard({ rows }) {
                   <td>{`${row.totalExperience || 0}y (relevant ${row.relevantExperience || 0}y)`}</td>
                   <td>{formatEducationList(row.education)}</td>
                   <td>{(row.certifications || []).join(", ") || "N/A"}</td>
+                  <td>
+                    {row.formatScore}% 
+                    {row.formatCheck?.missing_sections?.length > 0 ? (
+                      <span style={{ color: "#ef4444", fontSize: "0.85em", display: "block" }}>
+                        Missing: {row.formatCheck.missing_sections.join(", ")}
+                      </span>
+                    ) : (
+                      <span style={{ color: "#22c55e", fontSize: "0.85em", display: "block" }}>All sections present</span>
+                    )}
+                  </td>
                   <td>{row.score}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan="7">Upload and score resumes to view analytics.</td>
+                <td colSpan="8">Upload and score resumes to view analytics.</td>
               </tr>
             )}
           </tbody>
         </table>
-      </section>
+      </motion.section>
     </div>
   );
 }

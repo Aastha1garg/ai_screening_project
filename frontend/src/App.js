@@ -15,9 +15,12 @@ import ImproveResume from "./components/ImproveResume";
 import ProfilePage from "./components/ProfilePage";
 import SettingsPage from "./components/SettingsPage";
 import ProgressIndicator from "./components/ProgressIndicator";
+import Chatbot from "./components/Chatbot";
 import { useRealtimeScoring } from "./hooks/useRealtimeScoring";
 import { SettingsProvider } from "./context/LanguageContext";
 import { apiClient, AUTH_TOKEN_KEY } from "./components/api";
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 const LS_UPLOAD_META = "ai_resume_upload_meta";
 
@@ -139,12 +142,19 @@ function App() {
   const [realtimeProgress, setRealtimeProgress] = useState(null);
   const [realtimeResults, setRealtimeResults] = useState([]);
   
-  const { connect: connectRealtime, progress, results: rtResults, isConnected: isRtConnected, error: rtError } = useRealtimeScoring(
-    (result) => {
-      setRealtimeResults((prev) => [...prev, result]);
-    },
-    token
-  );
+  const {
+    connect,
+    connectRealtimeSession,
+    progress: realtimeProgressRaw,
+    results: realtimeResultsRaw,
+    isConnected,
+    error: realtimeError,
+  } = useRealtimeScoring((newResult) => {
+    setRealtimeResults((prev) => [...prev, newResult]);
+    if (newResult && newResult.resume_name) {
+      toast.success(`Scored: ${newResult.resume_name}`);
+    }
+  }, token);
 
   const parseJwtEmail = (jwtToken) => {
     try {
@@ -271,10 +281,10 @@ function App() {
 
   // Track real-time progress updates
   useEffect(() => {
-    if (progress) {
-      setRealtimeProgress(progress);
+    if (realtimeProgressRaw) {
+      setRealtimeProgress(realtimeProgressRaw);
     }
-  }, [progress]);
+  }, [realtimeProgressRaw]);
 
   useEffect(() => {
     if (!token) return;
@@ -297,6 +307,22 @@ function App() {
     }
   }, [token]);
 
+  useEffect(() => {
+    const onAuthFailure = () => handleAuthFailure();
+    window.addEventListener('auth-failure', onAuthFailure);
+    return () => window.removeEventListener('auth-failure', onAuthFailure);
+  }, []);
+
+  const isTokenValid = (tokenStr) => {
+    if (!tokenStr) return false;
+    try {
+      const payload = JSON.parse(atob(tokenStr.split('.')[1]));
+      return payload.exp * 1000 > Date.now();
+    } catch (e) {
+      return false;
+    }
+  };
+
   const handleLogin = (newToken) => {
     const email = parseJwtEmail(newToken);
     localStorage.setItem(AUTH_TOKEN_KEY, newToken);
@@ -306,25 +332,38 @@ function App() {
     setAuthError("");
   };
 
-  const handleUpload = async (formData) => {
-    const res = await apiClient.post("/upload", formData);
-    const groups = Array.isArray(res.data?.results) ? res.data.results : [];
-    if (groups.length && groups[0]?.candidates) {
-      // Flatten grouped results and deduplicate by filename
-      const allResults = groups.flatMap((group) => group.candidates || []);
-      const deduplicatedResults = deduplicateResultsByFilename(allResults);
-      
-      // Group the deduplicated results
-      const groupedDeduped = groupResultsByJD(deduplicatedResults);
-      setGroupedResults(groupedDeduped);
-      setResults(deduplicatedResults);
+  const handleUpload = async (formData, onUploadProgress) => {
+    try {
+      const res = await apiClient.post("/upload", formData, {
+        onUploadProgress,
+      });
+      const groups = Array.isArray(res.data?.results) ? res.data.results : [];
+      if (groups.length && groups[0]?.candidates) {
+        // Flatten grouped results and deduplicate by filename
+        const allResults = groups.flatMap((group) => group.candidates || []);
+        const deduplicatedResults = deduplicateResultsByFilename(allResults);
+        
+        // Group the deduplicated results
+        const groupedDeduped = groupResultsByJD(deduplicatedResults);
+        setGroupedResults(groupedDeduped);
+        setResults(deduplicatedResults);
+        toast.success("Upload and scoring completed successfully!");
+      }
+      await refreshHistory();
+      await refreshNotifications();
+      await refreshShortlisted();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Upload failed");
+      throw err;
     }
-    await refreshHistory();
-    await refreshNotifications();
-    await refreshShortlisted();
   };
 
   const performUpload = async () => {
+    if (!isTokenValid(token)) {
+      handleAuthFailure();
+      return;
+    }
+
     if (!uploadResumes.length || !uploadJds.length) {
       setUploadError("Please upload at least one resume and one job description.");
       return;
@@ -343,67 +382,39 @@ function App() {
     try {
       // Use real-time scoring if enabled
       if (useRealtimeMode) {
-        const readFileAsBase64 = (file) =>
-          new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const result = reader.result;
-              if (typeof result !== 'string') {
-                return reject(new Error('Failed to read file content'));
-              }
-              const parts = result.split(',');
-              resolve(parts.length > 1 ? parts[1] : '');
-            };
-            reader.onerror = () => reject(new Error('Failed to read file content'));
-            reader.readAsDataURL(file);
-          });
-
-        const readFileSafe = async (file) => {
-          try {
-            const text = await file.text();
-
-            if (!text || text.length < 20) {
-              return `Sample content from ${file.name}`;
-            }
-
-            return text;
-          } catch {
-            return `Sample content from ${file.name}`;
-          }
-        };
-
-        const resumeTexts = [];
-        for (const file of uploadResumes) {
-          const [content_base64, text] = await Promise.all([
-            readFileAsBase64(file),
-            readFileSafe(file),
-          ]);
-          resumeTexts.push({
-            name: file.name,
-            content_base64,
-            text: text && text.length > 10 ? text : `Sample content from ${file.name}`,
-          });
+        const formData = new FormData();
+        Array.from(uploadResumes).forEach((file) => formData.append("resumes", file));
+        Array.from(uploadJds).forEach((file) => formData.append("jds", file));
+        if (uploadTemplate) {
+          formData.append("template_resume", uploadTemplate);
         }
 
-        const jdTexts = [];
-        for (const file of uploadJds) {
-          const [content_base64, text] = await Promise.all([
-            readFileAsBase64(file),
-            readFileSafe(file),
-          ]);
-          jdTexts.push({
-            name: file.name,
-            content_base64,
-            text: text && text.length > 10 ? text : `Sample content from ${file.name}`,
-          });
-        }
-
-        const templateText = uploadTemplate ? await uploadTemplate.text() : '';
-        console.log("Sending:", resumeTexts, jdTexts);
-        console.log("FINAL DATA:", resumeTexts, jdTexts);
+        // Stage 1: File Upload Progress (0% -> 40%)
+        let extractResponse;
         try {
-          // Connect and stream results
-          const resultPayload = await connectRealtime(resumeTexts, jdTexts, templateText);
+          extractResponse = await apiClient.post("/upload_temp", formData, {
+            onUploadProgress: (progressEvent) => {
+              const percentCompleted = progressEvent.total ? Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
+              // Map Axios 0-100% to Global 0-40%
+              const mappedProgress = Math.round(percentCompleted * 0.4);
+              setRealtimeProgress({
+                event: 'Uploading File...',
+                progress_percent: mappedProgress,
+                total_files: uploadResumes.length,
+                completed_files: 0,
+              });
+            }
+          });
+        } catch (extractErr) {
+          toast.error("File upload failed before analysis");
+          throw extractErr;
+        }
+
+        const { session_id } = extractResponse.data;
+
+        try {
+          // Connect and stream results. The WebSocket logic handles 40% -> 100%
+          const resultPayload = await connectRealtimeSession(session_id);
           console.log("WS EVENT: all_completed", resultPayload);
           const finalResults = Array.isArray(resultPayload?.results) ? resultPayload.results : [];
 
@@ -422,6 +433,7 @@ function App() {
           });
         } catch (err) {
           console.log("Realtime upload failed, falling back to REST upload", err);
+          toast.info("Falling back to standard upload...");
           // WebSocket unavailable; silently fall back to REST upload
           const formData = new FormData();
           uploadResumes.forEach((file) => formData.append('resumes', file));
@@ -429,7 +441,13 @@ function App() {
           if (uploadTemplate) {
             formData.append('template_resume', uploadTemplate);
           }
-          await handleUpload(formData);
+          await handleUpload(formData, (progressEvent) => {
+            const percentCompleted = progressEvent.total ? Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
+            setRealtimeProgress({
+              event: percentCompleted < 100 ? 'uploading' : 'processing',
+              progress_percent: percentCompleted,
+            });
+          });
         }
       } else {
         // Fall back to traditional upload
@@ -439,7 +457,13 @@ function App() {
         if (uploadTemplate) {
           formData.append("template_resume", uploadTemplate);
         }
-        await handleUpload(formData);
+        await handleUpload(formData, (progressEvent) => {
+          const percentCompleted = progressEvent.total ? Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
+          setRealtimeProgress({
+            event: percentCompleted < 100 ? 'uploading' : 'processing',
+            progress_percent: percentCompleted,
+          });
+        });
       }
 
       try {
@@ -478,7 +502,13 @@ function App() {
       formData.append("template_resume", lastUploadPayload.template);
     }
     try {
-      await handleUpload(formData);
+      await handleUpload(formData, (progressEvent) => {
+        const percentCompleted = progressEvent.total ? Math.round((progressEvent.loaded * 100) / progressEvent.total) : 0;
+        setRealtimeProgress({
+          event: percentCompleted < 100 ? 'uploading' : 'processing',
+          progress_percent: percentCompleted,
+        });
+      });
     } catch (err) {
       if (err?.response?.status === 401) {
         handleAuthFailure();
@@ -577,6 +607,7 @@ function App() {
     return (
       <div className="auth-wrapper">
         <AuthForm onAuthSuccess={handleLogin} initialError={authError} />
+        <ToastContainer position="bottom-right" autoClose={3000} theme="dark" />
       </div>
     );
   }
@@ -584,12 +615,14 @@ function App() {
   return (
     <SettingsProvider>
       <div className="app-shell">
+        <ToastContainer position="bottom-right" autoClose={3000} theme="dark" />
         <div className="bg-orb orb-a" />
         <div className="bg-orb orb-b" />
         <div className="bg-orb orb-c" />
       
       {/* Real-time scoring progress indicator */}
       <ProgressIndicator progress={realtimeProgress} isVisible={uploadLoading && useRealtimeMode} />
+      <Chatbot activePage={activePage} />
       
       <div className="layout">
         <Sidebar activePage={activePage} onNavigate={setActivePage} onLogout={handleLogout} />

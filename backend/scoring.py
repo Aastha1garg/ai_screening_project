@@ -107,10 +107,14 @@ def experience_score(total_exp: float, required_exp: float) -> tuple[float, str]
     return 35.0, "low"
 
 
-def run_resume_screening(resume_text: str, jd_text: str, template_text: str = "") -> Dict:
+def run_resume_screening(resume_text: str, jd_text: str, template_text: str = "", progress_callback=None) -> Dict:
+    if progress_callback: progress_callback(5, "Parsing Resume...")
     jd_entities = classify_entities(jd_text, source="jd")
+    
+    if progress_callback: progress_callback(25, "Parsing Resume...")
     resume_entities = classify_entities(resume_text, source="resume", jd_skills=set(jd_entities["skills"]))
 
+    if progress_callback: progress_callback(50, "Analyzing Skills...")
     jd_skills = set(jd_entities["skills"])
     resume_skills = set(resume_entities["skills"])
 
@@ -144,6 +148,7 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
     cert_match = match_certifications(certifications, required_certifications)
     cert_score = certification_score(cert_match)
 
+    if progress_callback: progress_callback(75, "Analyzing Skills...")
     format_result = evaluate_format(resume_text, template_text or jd_text)
     exp_score, experience_match = experience_score(total_experience, required_experience)
     format_score = round(float(format_result.get("format_score", 0) or 0), 2)
@@ -190,6 +195,7 @@ def run_resume_screening(resume_text: str, jd_text: str, template_text: str = ""
     result["score_adjusted"] = adjusted_score
     result["final_score"] = final_score
 
+    if progress_callback: progress_callback(90, "Updating Dashboard...")
     entities = extract_entities_with_spacy(resume_text)
     partial_matches = sorted(skill_breakdown.get("partial_matches", []))
     matched_skill_set = set(skill_breakdown.get("matched_skills", []))

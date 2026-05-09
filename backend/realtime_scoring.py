@@ -83,12 +83,30 @@ async def stream_resume_screening(
                 try:
                     # Add traceback logging for debugging
                     import traceback
+                    
+                    def sync_callback(percent: float, stage: str):
+                        try:
+                            base_percent = (completed_files / total_files) * 100.0 if total_files else 0.0
+                            increment = (percent / 100.0) * (100.0 / total_files) if total_files else 0.0
+                            global_percent = min(99.0, max(0.0, base_percent + increment))
+                            
+                            coro = callback(ScoringProgress(
+                                event=stage,
+                                total_files=total_files,
+                                completed_files=completed_files,
+                                current_resume=resume_name or "",
+                                current_jd=jd_name or "",
+                                progress_percent=global_percent
+                            ))
+                            asyncio.run_coroutine_threadsafe(coro, loop)
+                        except Exception as cb_err:
+                            print(f"Error in sync_callback: {cb_err}")
+
                     result = await loop.run_in_executor(
                         executor,
-                        run_resume_screening,
-                        resume_text,
-                        jd_text,
-                        template_text,
+                        lambda r=resume_text, j=jd_text, t=template_text, c=sync_callback: run_resume_screening(
+                            r, j, t, progress_callback=c
+                        )
                     )
                 except Exception as e:
                     error_msg = f"Server processing error: {str(e)}"

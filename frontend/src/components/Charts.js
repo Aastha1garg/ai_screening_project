@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { motion } from "framer-motion";
 
 const PIE_COLORS = ["#4f46e5", "#f43f5e", "#14b8a6"];
 
@@ -97,7 +98,12 @@ function Charts({ rows }) {
 
   return (
     <section className="charts-wrapper charts-wrapper-3">
-      <article className="card chart-card">
+      <motion.article 
+        className="card chart-card"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+      >
         <h3>Resume Stats</h3>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={statsData} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
@@ -119,8 +125,14 @@ function Charts({ rows }) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-      </article>
-      <article className="card chart-card">
+      </motion.article>
+
+      <motion.article 
+        className="card chart-card"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+      >
         <h3>Status Distribution</h3>
         <ResponsiveContainer width="100%" height={280}>
           <PieChart>
@@ -144,8 +156,14 @@ function Charts({ rows }) {
             <Legend wrapperStyle={{ paddingTop: "16px" }} />
           </PieChart>
         </ResponsiveContainer>
-      </article>
-      <article className="card chart-card">
+      </motion.article>
+
+      <motion.article 
+        className="card chart-card"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.3 }}
+      >
         <h3>Skill Distribution</h3>
         <ResponsiveContainer width="100%" height={280}>
           <BarChart data={skillDistribution} margin={{ top: 20, right: 30, left: 0, bottom: 50 }}>
@@ -189,7 +207,7 @@ function Charts({ rows }) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-      </article>
+      </motion.article>
     </section>
   );
 }

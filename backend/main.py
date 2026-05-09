@@ -7,6 +7,7 @@ from base64 import b64decode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import re
+import uuid
 from typing import Optional, List, Dict, Any
 
 from fastapi import Depends, FastAPI, Body, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
@@ -140,6 +141,9 @@ def convert_to_serializable(obj: Any) -> Any:
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AI Resume Screening API", version="1.0.0")
+
+from chat import router as chat_router
+app.include_router(chat_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -826,6 +830,231 @@ async def upload_resume(
         )
 
     return UploadResponse(results=grouped_results)
+
+
+_upload_sessions = {}
+
+class UploadTempResponse(BaseModel):
+    session_id: str
+    message: str
+
+@app.post("/upload_temp", response_model=UploadTempResponse)
+async def upload_temp(
+    resumes: List[UploadFile] = File(...),
+    jds: List[UploadFile] = File(...),
+    template_resume: UploadFile = File(None),
+    current_user: User = Depends(get_current_user),
+):
+    session_id = str(uuid.uuid4())
+    
+    # Buffer the raw bytes
+    resume_data = []
+    for r in resumes:
+        content = await r.read()
+        resume_data.append({"name": r.filename, "content": content})
+        
+    jd_data = []
+    for j in jds:
+        content = await j.read()
+        jd_data.append({"name": j.filename, "content": content})
+        
+    template_data = None
+    if template_resume:
+        content = await template_resume.read()
+        template_data = {"name": template_resume.filename, "content": content}
+        
+    _upload_sessions[session_id] = {
+        "user_id": current_user.id,
+        "resumes": resume_data,
+        "jds": jd_data,
+        "template": template_data,
+    }
+    
+    return {"session_id": session_id, "message": "Files buffered for processing"}
+
+
+@app.websocket("/ws/session/{session_id}")
+async def websocket_session(websocket: WebSocket, session_id: str):
+    print(f"WebSocket session {session_id} request received")
+    await websocket.accept()
+    print("WebSocket session accepted")
+
+    session_data = _upload_sessions.pop(session_id, None)
+    if not session_data:
+        print("Session not found or expired")
+        await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+            event="error", total_files=0, completed_files=0, current_resume="", current_jd="",
+            error="Session expired or invalid"
+        )))
+        await websocket.close(code=1008)
+        return
+
+    db = SessionLocal()
+    try:
+        user_id = session_data["user_id"]
+        current_user = db.query(User).filter(User.id == user_id).first()
+        if not current_user:
+            await websocket.close(code=1008)
+            return
+
+        resumes_raw = session_data["resumes"]
+        jds_raw = session_data["jds"]
+        template_raw = session_data["template"]
+
+        total_files = len(resumes_raw)
+        
+        async def send_progress(progress: ScoringProgress):
+            try:
+                await websocket.send_text(serialize_scoring_progress(progress))
+            except Exception as send_err:
+                print(f"WebSocket progress send failure: {send_err}")
+                raise
+
+        await send_progress(ScoringProgress(
+            event="started", total_files=total_files, completed_files=0, current_resume="", current_jd="", progress_percent=0.0
+        ))
+
+        # Extract text in non-blocking thread pool
+        await send_progress(ScoringProgress(
+            event="Extracting text from files...", total_files=total_files, completed_files=0, current_resume="", current_jd="", progress_percent=5.0
+        ))
+        
+        loop = asyncio.get_running_loop()
+        
+        def _extract(name, raw_bytes):
+            return name, extract_text(name, raw_bytes)
+            
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            resume_futures = [loop.run_in_executor(pool, _extract, r["name"], r["content"]) for r in resumes_raw]
+            jd_futures = [loop.run_in_executor(pool, _extract, j["name"], j["content"]) for j in jds_raw]
+            
+            resume_tuples = await asyncio.gather(*resume_futures)
+            jd_tuples = await asyncio.gather(*jd_futures)
+            
+            template_text = ""
+            if template_raw:
+                _, template_text = await loop.run_in_executor(pool, _extract, template_raw["name"], template_raw["content"])
+
+        await send_progress(ScoringProgress(
+            event="Text extraction complete", total_files=total_files, completed_files=0, current_resume="", current_jd="", progress_percent=10.0
+        ))
+
+        # Stream results
+        results = await stream_resume_screening(resume_tuples, jd_tuples, template_text, send_progress)
+
+        seen_pairs = set()
+        deduplicated_results = []
+        for result in results:
+            pair_key = (result.get("resume_name"), result.get("jd_name"), result.get("resume_text"), result.get("jd_text"))
+            if pair_key not in seen_pairs:
+                seen_pairs.add(pair_key)
+                deduplicated_results.append(result)
+
+        try:
+            db_results = []
+            history_records = []
+            for result in deduplicated_results:
+                result_status = _infer_status(result.get("final_score", 0))
+                history = ScreeningHistory(
+                    user_id=current_user.id,
+                    resume_text=result.get("resume_text", ""),
+                    jd_text=result.get("jd_text", ""),
+                    final_score=float(result.get("final_score", 0)),
+                    resume_name=result.get("resume_name", "Unknown Resume"),
+                    jd_name=result.get("jd_name", "Unknown JD"),
+                    status=result_status,
+                    format_score=float(result.get("format_check", {}).get("format_score", 0)),
+                    skill_score=float(result.get("skill_score", 0)),
+                    matched_skills=json.dumps(result.get("matched_skills", [])),
+                    missing_skills=json.dumps(result.get("missing_skills", [])),
+                    result_payload=json.dumps(result),
+                )
+                history_records.append(history)
+            
+            db.add_all(history_records)
+            db.commit()
+        except Exception as db_err:
+            db.rollback()
+            await send_progress(ScoringProgress(
+                event="error", total_files=total_files, completed_files=total_files, current_resume="", current_jd="", error=f"Database error: {str(db_err)}"
+            ))
+            await websocket.close(code=1011)
+            return
+
+        try:
+            create_notification(db, current_user.id, f"Resume upload completed ({len(deduplicated_results)} results generated).")
+            if any(float(r.get("final_score", 0)) >= 80 for r in deduplicated_results):
+                create_notification(db, current_user.id, "New high-score candidate detected (>=80).")
+            if any(float(r.get("format_check", {}).get("format_score", 0)) < 70 for r in deduplicated_results):
+                create_notification(db, current_user.id, "Format mismatch warning found in one or more resumes.")
+            db.commit()
+        except:
+            pass
+
+        final_results = []
+        for result in deduplicated_results:
+            experience_data = result.get("experience", {}) or {}
+            result_dict = {
+                "resume_name": result.get("resume_name", ""),
+                "jd_name": result.get("jd_name", ""),
+                "resume_text": result.get("resume_text", ""),
+                "jd_text": result.get("jd_text", ""),
+                "score": result.get("final_score", 0),
+                "final_score": result.get("final_score", 0),
+                "skill_score": result.get("skill_score", 0),
+                "skill_match": result.get("skill_score", 0),
+                "format_score": float(result.get("format_check", {}).get("format_score", 0)),
+                "matched_skills": _clean_skill_list(result.get("matched_skills", [])),
+                "missing_skills": _clean_skill_list(result.get("missing_skills", [])),
+                "extra_skills": result.get("extra_skills", []),
+                "partial_matches": result.get("partial_matches", []),
+                "experience": experience_data,
+                "relevant_experience": float(experience_data.get("relevant_years", 0) or 0),
+                "education": result.get("education", []),
+                "required_education": result.get("required_education", []),
+                "certifications_all": result.get("certifications_all", result.get("certifications", [])),
+                "certifications_required": result.get("certifications_required", result.get("required_certifications", [])),
+                "certifications_matched": result.get("certifications_matched", result.get("matched_certifications", [])),
+                "certifications_missing": result.get("certifications_missing", result.get("missing_certifications", [])),
+                "certifications_extra": result.get("certifications_extra", result.get("extra_certifications", [])),
+                "education_match": result.get("education_match", ""),
+                "experience_match": result.get("experience_match", ""),
+                "score_breakdown": result.get("score_breakdown", {}),
+                "sentiment": result.get("sentiment", "neutral"),
+                "profile_label": result.get("profile_label", "Needs Improvement"),
+                "status": _infer_status(result.get("final_score", 0)),
+                "feedback": result.get("ai_feedback", {}),
+                "shortlisted": False,
+            }
+            final_results.append(convert_to_serializable(result_dict))
+
+        await websocket.send_text(json.dumps({
+            "event": "all_completed",
+            "total_files": total_files,
+            "completed_files": total_files,
+            "progress_percent": 100.0,
+            "total_results": len(final_results),
+            "results": final_results
+        }))
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        try:
+            error_message = str(e).strip() if str(e).strip() else "Unknown error"
+            if "coroutine" in error_message.lower():
+                error_message = "Server processing error"
+            await websocket.send_text(serialize_scoring_progress(ScoringProgress(
+                event="error", total_files=0, completed_files=0, current_resume="", current_jd="", error=error_message
+            )))
+        except:
+            pass
+        finally:
+            await websocket.close(code=1011)
+    finally:
+        db.close()
 
 
 @app.websocket("/ws/upload")

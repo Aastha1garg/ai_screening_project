@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { motion } from "framer-motion";
 import Charts from "./Charts";
 import AnalyticsDashboard from "./AnalyticsDashboard";
 
@@ -56,6 +57,8 @@ function normalizeRows(results) {
       profileLabel: item.profile_label || "Needs Improvement",
       feedback,
       status: item.status || inferStatus(numericScore),
+      formatCheck: item.format_check || {},
+      formatScore: Number(item.format_score || 0),
     };
   });
 }
@@ -113,8 +116,64 @@ function Dashboard({ groupedResults, searchQuery }) {
     return `🥉 ${t("dashboard.moderateMatch")}`;
   };
 
+  const getFormatBadge = (score) => {
+    if (score >= 80) return <span style={{ color: "#22c55e", fontWeight: "bold" }}>✅ ATS Friendly</span>;
+    if (score >= 50) return <span style={{ color: "#f59e0b", fontWeight: "bold" }}>⚠️ Needs Improvement</span>;
+    return <span style={{ color: "#ef4444", fontWeight: "bold" }}>❌ Poor Formatting</span>;
+  };
+
+  const summaryStats = useMemo(() => {
+    const total = filteredRows.length;
+    const shortlisted = filteredRows.filter(r => r.status === "selected").length;
+    const rejected = filteredRows.filter(r => r.status === "rejected").length;
+    const pending = filteredRows.filter(r => r.status === "pending").length;
+    const avgScore = total > 0 ? (filteredRows.reduce((acc, r) => acc + r.scoreValue, 0) / total).toFixed(1) : 0;
+    
+    return { total, shortlisted, rejected, pending, avgScore };
+  }, [filteredRows]);
+
+  const cardVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: (i) => ({
+      opacity: 1,
+      y: 0,
+      transition: {
+        delay: i * 0.1,
+        duration: 0.4,
+        ease: "easeOut",
+      },
+    }),
+  };
+
   return (
     <div className="dashboard-content">
+      <section className="dashboard-header-row" style={{ marginBottom: "20px" }}>
+        <motion.div custom={0} initial="hidden" animate="visible" variants={cardVariants} className="card stat-card glass-card" style={{ flex: 1, textAlign: "center", padding: "20px" }}>
+          <h4 style={{ margin: "0 0 10px 0", color: "#94a3b8" }}>Total Uploaded</h4>
+          <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#38bdf8", margin: 0 }}>{summaryStats.total}</p>
+        </motion.div>
+        
+        <motion.div custom={1} initial="hidden" animate="visible" variants={cardVariants} className="card stat-card glass-card" style={{ flex: 1, textAlign: "center", padding: "20px" }}>
+          <h4 style={{ margin: "0 0 10px 0", color: "#94a3b8" }}>Shortlisted</h4>
+          <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#22c55e", margin: 0 }}>{summaryStats.shortlisted}</p>
+        </motion.div>
+        
+        <motion.div custom={2} initial="hidden" animate="visible" variants={cardVariants} className="card stat-card glass-card" style={{ flex: 1, textAlign: "center", padding: "20px" }}>
+          <h4 style={{ margin: "0 0 10px 0", color: "#94a3b8" }}>Pending</h4>
+          <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#f59e0b", margin: 0 }}>{summaryStats.pending}</p>
+        </motion.div>
+
+        <motion.div custom={3} initial="hidden" animate="visible" variants={cardVariants} className="card stat-card glass-card" style={{ flex: 1, textAlign: "center", padding: "20px" }}>
+          <h4 style={{ margin: "0 0 10px 0", color: "#94a3b8" }}>Rejected</h4>
+          <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#ef4444", margin: 0 }}>{summaryStats.rejected}</p>
+        </motion.div>
+
+        <motion.div custom={4} initial="hidden" animate="visible" variants={cardVariants} className="card stat-card glass-card" style={{ flex: 1, textAlign: "center", padding: "20px" }}>
+          <h4 style={{ margin: "0 0 10px 0", color: "#94a3b8" }}>Avg Score</h4>
+          <p style={{ fontSize: "2rem", fontWeight: "bold", color: "#8b5cf6", margin: 0 }}>{summaryStats.avgScore}%</p>
+        </motion.div>
+      </section>
+
       <section className="card">
         <div className="dashboard-header-row">
           <div>
@@ -147,6 +206,7 @@ function Dashboard({ groupedResults, searchQuery }) {
               <th>{t("dashboard.name")}</th>
               <th>{t("dashboard.score")}</th>
               <th>{t("dashboard.keySkills")}</th>
+              <th>Format Status</th>
               <th>{t("dashboard.badge")}</th>
             </tr>
           </thead>
@@ -158,12 +218,15 @@ function Dashboard({ groupedResults, searchQuery }) {
                   <td>{candidate.name}</td>
                   <td>{candidate.score}</td>
                   <td>{(candidate.matchedSkills || []).slice(0, 4).join(", ") || "N/A"}</td>
+                  <td title={candidate.formatCheck?.feedback || "No feedback"}>
+                    {getFormatBadge(candidate.formatScore)} ({candidate.formatScore}%)
+                  </td>
                   <td>{getBadge(index + 1)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan="5">{t("dashboard.emptyTopCandidates")}</td>
+                <td colSpan="6">{t("dashboard.emptyTopCandidates")}</td>
               </tr>
             )}
           </tbody>

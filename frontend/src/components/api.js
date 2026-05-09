@@ -15,10 +15,23 @@ apiClient.interceptors.request.use((config) => {
     url.endsWith("/auth/login") ||
     url.endsWith("/auth/register");
   if (!isAuthRoute) {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    let token = localStorage.getItem(AUTH_TOKEN_KEY);
     if (token) {
+      // Ensure we don't accidentally add 'Bearer ' multiple times
+      token = token.replace(/^Bearer\s+/i, '');
       config.headers.Authorization = `Bearer ${token}`;
     }
   }
   return config;
 });
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      // Dispatch a global event when a 401 is encountered
+      window.dispatchEvent(new Event('auth-failure'));
+    }
+    return Promise.reject(error);
+  }
+);
