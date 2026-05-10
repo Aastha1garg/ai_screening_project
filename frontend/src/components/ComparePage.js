@@ -70,58 +70,83 @@ const CustomStackedTooltip = ({ active, payload, label }) => {
   return null;
 };
 
-const CircularProgress = ({ value, label, color }) => {
+const CircularProgress = ({ value, label, colorClass, strokeColor }) => {
   const radius = 35;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (value / 100) * circumference;
 
   return (
-    <div className="circular-progress-container">
-      <svg width="80" height="80" className="circular-progress">
-        <circle cx="40" cy="40" r={radius} stroke="#1e293b" strokeWidth="6" fill="none" />
-        <circle cx="40" cy="40" r={radius} stroke={color} strokeWidth="6" fill="none" 
+    <div className="relative flex flex-col items-center justify-center w-[90px] h-[90px] mb-4">
+      <svg className="absolute top-0 left-0 w-full h-full transform -rotate-90">
+        <circle cx="45" cy="45" r={radius} stroke="#1e293b" strokeWidth="6" fill="none" />
+        <circle cx="45" cy="45" r={radius} stroke={strokeColor} strokeWidth="6" fill="none" 
           strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} 
-          style={{ transition: "stroke-dashoffset 1s ease-in-out" }}
-          transform="rotate(-90 40 40)" />
+          className="transition-all duration-1000 ease-in-out" />
       </svg>
-      <div className="progress-value" style={{position: 'absolute'}}>
-        <span className="val" style={{color: color}}>{value}%</span>
-        <span className="lbl">{label}</span>
+      <div className="z-10 flex flex-col items-center justify-center">
+        <span className={`text-xl font-bold ${colorClass}`}>{value}%</span>
       </div>
+      <span className="text-xs text-gray-400 mt-2 uppercase tracking-wider absolute -bottom-6 whitespace-nowrap">{label}</span>
     </div>
   );
 };
 
 const CandidateCard = ({ candidate, isBest }) => {
+  const expYears = typeof candidate.experience === "object" 
+    ? `${candidate.experience.total_years ?? candidate.experience.relevant_years ?? 0}` 
+    : candidate.experience;
+
   return (
-    <div className={`compare-candidate-card ${isBest ? 'recommended-card' : ''}`}>
-      {isBest && <div className="recommendation-badge">🏆 Top Recommendation</div>}
-      <div className="cc-header">
-        <div className="cc-avatar">{candidate.name.substring(0, 2).toUpperCase()}</div>
-        <div className="cc-title">
-          <h3>{candidate.name}</h3>
-          <span className="cc-exp">{typeof candidate.experience === "object" ? `${candidate.experience.total_years ?? candidate.experience.relevant_years ?? 0}` : candidate.experience} Years Exp • {candidate.status}</span>
+    <div className={`relative flex flex-col gap-6 p-6 rounded-2xl backdrop-blur-md transition-all duration-300 hover:scale-105 ${isBest ? 'bg-gradient-to-b from-[#16a34a15] to-[#1b1740] border-2 border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.15)]' : 'bg-[#1b1740] border border-indigo-500/30 shadow-xl'}`}>
+      {isBest && (
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-green-600 to-green-400 text-white px-4 py-1 rounded-full text-xs font-bold shadow-lg flex items-center gap-1 whitespace-nowrap">
+          🏆 Top Recommendation
+        </div>
+      )}
+      
+      <div className="flex items-center gap-4 mt-2">
+        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center text-white text-xl font-bold shadow-lg shrink-0">
+          {candidate.name.substring(0, 2).toUpperCase()}
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-xl font-bold text-white m-0 truncate">{candidate.name}</h3>
+          <p className="text-sm text-gray-400 m-0 mt-1 truncate">{expYears} Years Exp • {candidate.status}</p>
         </div>
       </div>
 
-      <div className="cc-metrics">
-        <CircularProgress value={candidate.score} label="ATS" color={candidate.score >= 75 ? "#22c55e" : "#f59e0b"} />
-        <CircularProgress value={candidate.skill_score} label="Skills" color="#00b4ff" />
-        <CircularProgress value={candidate.format_score} label="Format" color="#6d4dff" />
+      <div className="flex justify-around py-6 border-y border-white/10 mt-2 mb-4">
+        <CircularProgress value={candidate.score} label="ATS Score" colorClass="text-[#22d3ee]" strokeColor="#22d3ee" />
+        <CircularProgress value={candidate.skill_score} label="Skills Match" colorClass="text-[#8b5cf6]" strokeColor="#8b5cf6" />
+        <CircularProgress value={candidate.format_score} label="Format" colorClass="text-[#22c55e]" strokeColor="#22c55e" />
       </div>
 
-      <div className="cc-skills">
-        <h4>Matched Skills</h4>
-        <div className="skill-badges matched">
-          {(candidate.matched_skills || []).slice(0, 8).map(s => <span key={s}>{s}</span>)}
-          {(candidate.matched_skills || []).length > 8 && <span>+{(candidate.matched_skills.length - 8)} more</span>}
+      <div className="flex flex-col gap-3">
+        <h4 className="text-sm font-semibold text-gray-300 m-0">Matched Skills</h4>
+        <div className="flex flex-wrap gap-2">
+          {(candidate.matched_skills || []).slice(0, 8).map(s => (
+            <span key={s} className="px-3 py-1 bg-green-500/15 text-green-400 border border-green-500/20 rounded-full text-xs font-medium">
+              {s}
+            </span>
+          ))}
+          {(candidate.matched_skills || []).length > 8 && (
+            <span className="px-3 py-1 bg-gray-500/15 text-gray-400 border border-gray-500/20 rounded-full text-xs font-medium">
+              +{(candidate.matched_skills.length - 8)} more
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="cc-skills">
-        <h4>Missing Skills</h4>
-        <div className="skill-badges missing">
-          {(candidate.missing_skills || []).slice(0, 8).map(s => <span key={s}>{s}</span>)}
+      <div className="flex flex-col gap-3">
+        <h4 className="text-sm font-semibold text-gray-300 m-0">Missing Skills</h4>
+        <div className="flex flex-wrap gap-2">
+          {(candidate.missing_skills || []).slice(0, 8).map(s => (
+            <span key={s} className="px-3 py-1 bg-red-500/15 text-red-400 border border-red-500/20 rounded-full text-xs font-medium">
+              {s}
+            </span>
+          ))}
+          {(!candidate.missing_skills || candidate.missing_skills.length === 0) && (
+            <span className="text-sm text-gray-500 italic">No missing skills!</span>
+          )}
         </div>
       </div>
     </div>
@@ -266,13 +291,15 @@ function ComparePage({ history = [], token }) {
 
       {!!candidates.length && (
         <>
-          <section className="card modern-comparison-dashboard">
-            <div className="recommendation-banner">
-              <h2>Comparison Results</h2>
-              <p className="muted">AI-driven side-by-side analysis of your selected candidates.</p>
+          <section className="mt-12 w-full max-w-[1400px] mx-auto px-4">
+            <div className="mb-10 text-center md:text-left">
+              <h2 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500 mb-3">
+                Comparison Results
+              </h2>
+              <p className="text-gray-400 text-lg">AI-driven side-by-side analysis of your selected candidates.</p>
             </div>
             
-            <div className="candidate-cards-container">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pt-6">
               {candidatesWithExperience.map(c => (
                 <CandidateCard key={c.id} candidate={c} isBest={c.id === bestCandidateId} />
               ))}
